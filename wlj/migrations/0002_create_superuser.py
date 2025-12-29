@@ -8,6 +8,7 @@
 
 import os
 from django.db import migrations
+from django.contrib.auth.hashers import make_password
 
 
 def create_superuser(apps, schema_editor):
@@ -25,16 +26,15 @@ def create_superuser(apps, schema_editor):
         print(f'Superuser "{username}" already exists. Skipping.')
         return
 
-    # Create superuser using the model directly
-    user = User(
+    # Create superuser using make_password (set_password not available on historical model)
+    User.objects.create(
         username=username,
         email=email,
+        password=make_password(password),
         is_staff=True,
         is_superuser=True,
         is_active=True,
     )
-    user.set_password(password)
-    user.save()
     print(f'Superuser "{username}" created successfully.')
 
 
