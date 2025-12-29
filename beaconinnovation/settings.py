@@ -13,7 +13,18 @@ SECRET_KEY = 'django-insecure-dgmjrf7va0u11#qu4=a_yp=$+&#@%hsiyvgthiw+s++au^yh%5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['beacon-innovation.com', 'https://beacon-innovation.com','https://beaconinnovation-production.up.railway.app', 'beaconinnovation-production.up.railway.app']
+ALLOWED_HOSTS = [
+    'beacon-innovation.com',
+    'beaconinnovation-production.up.railway.app',
+    'localhost',
+    '127.0.0.1',
+]
+
+# CSRF trusted origins for secure form submissions
+CSRF_TRUSTED_ORIGINS = [
+    'https://beacon-innovation.com',
+    'https://beaconinnovation-production.up.railway.app',
+]
 
 
 # Application definition
