@@ -1,0 +1,40 @@
+{% extends 'wlj/base.html' %}
+{% block title %}Service Costs{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-8">Third-Party Service Costs</h1>
+
+<div class="bg-white p-6 rounded-lg shadow overflow-x-auto">
+    <table class="w-full">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-4 py-3 text-left">Category</th>
+                <th class="px-4 py-3 text-left">Provider</th>
+                <th class="px-4 py-3 text-left">Product</th>
+                <th class="px-4 py-3 text-right">1K Users</th>
+                <th class="px-4 py-3 text-right">10K Users</th>
+                <th class="px-4 py-3 text-right">50K Users</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cost in all_costs %}
+            <tr class="border-t hover:bg-gray-50">
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-800">{{ cost.category }}</span>
+                </td>
+                <td class="px-4 py-3 font-medium">{{ cost.provider }}</td>
+                <td class="px-4 py-3 text-gray-600">{{ cost.product }}</td>
+                <td class="px-4 py-3 text-right">${{ cost.cost_1k_low }} - ${{ cost.cost_1k_high }}</td>
+                <td class="px-4 py-3 text-right">${{ cost.cost_10k_low }} - ${{ cost.cost_10k_high }}</td>
+                <td class="px-4 py-3 text-right">${{ cost.cost_50k_low }} - ${{ cost.cost_50k_high }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                    No service costs imported yet. Run the import command.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

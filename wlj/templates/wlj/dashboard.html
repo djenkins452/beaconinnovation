@@ -1,0 +1,76 @@
+{% extends 'wlj/base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-8">Whole Life Journey - Financial Dashboard</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    {% if latest_metrics %}
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-gray-500 text-sm">Total Tests</h3>
+        <p class="text-3xl font-bold text-indigo-600">{{ latest_metrics.total_tests }}</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-gray-500 text-sm">Django Apps</h3>
+        <p class="text-3xl font-bold text-green-600">{{ latest_metrics.total_apps }}</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-gray-500 text-sm">Third-Party Services</h3>
+        <p class="text-3xl font-bold text-blue-600">{{ latest_metrics.third_party_services }}</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-gray-500 text-sm">Database Models</h3>
+        <p class="text-3xl font-bold text-purple-600">{{ latest_metrics.total_models }}</p>
+    </div>
+    {% else %}
+    <div class="bg-yellow-100 p-6 rounded-lg shadow col-span-4">
+        <p class="text-yellow-800">No codebase metrics imported yet. Run the import command.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">5-Year Projections (Base Case)</h2>
+        {% if projections %}
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-2 text-left">Year</th>
+                    <th class="px-4 py-2 text-right">Users</th>
+                    <th class="px-4 py-2 text-right">Revenue</th>
+                    <th class="px-4 py-2 text-right">Profit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for proj in projections %}
+                <tr class="border-t">
+                    <td class="px-4 py-2">Year {{ proj.year }}</td>
+                    <td class="px-4 py-2 text-right">{{ proj.paying_users }}</td>
+                    <td class="px-4 py-2 text-right">${{ proj.annual_revenue }}</td>
+                    <td class="px-4 py-2 text-right text-green-600">${{ proj.net_profit }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-gray-500">No projections imported yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">Recent Documents</h2>
+        {% if documents %}
+        <ul class="space-y-2">
+            {% for doc in documents %}
+            <li class="flex justify-between items-center p-3 bg-gray-50 rounded">
+                <span>{{ doc.title }}</span>
+                <a href="{% url 'wlj:download' doc.pk %}" class="text-indigo-600 hover:underline">Download</a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-gray-500">No documents uploaded yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

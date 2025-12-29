@@ -1,0 +1,72 @@
+{% extends 'wlj/base.html' %}
+{% block title %}Financial Projections{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-8">5-Year Financial Projections</h1>
+
+<div class="bg-white p-6 rounded-lg shadow mb-8">
+    <canvas id="revenueChart" height="100"></canvas>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    {% for scenario, projections in projections_by_scenario.items %}
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-bold text-gray-800 mb-4 capitalize">{{ scenario|title }}</h2>
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-2 py-2 text-left">Year</th>
+                    <th class="px-2 py-2 text-right">Users</th>
+                    <th class="px-2 py-2 text-right">Revenue</th>
+                    <th class="px-2 py-2 text-right">Profit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for proj in projections %}
+                <tr class="border-t">
+                    <td class="px-2 py-2">Y{{ proj.year }}</td>
+                    <td class="px-2 py-2 text-right">{{ proj.paying_users }}</td>
+                    <td class="px-2 py-2 text-right">${{ proj.annual_revenue }}</td>
+                    <td class="px-2 py-2 text-right text-green-600">${{ proj.net_profit }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="4" class="text-gray-500 py-4">No data</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+fetch('{% url "wlj:api_projections" %}')
+    .then(r => r.json())
+    .then(data => {
+        const ctx = document.getElementById('revenueChart').getContext('2d');
+        const scenarios = data.scenarios;
+        const datasets = [];
+        const colors = {conservative: '#6B7280', base_case: '#4F46E5', aggressive: '#10B981'};
+
+        for (const [name, points] of Object.entries(scenarios)) {
+            datasets.push({
+                label: name.replace('_', ' ').toUpperCase(),
+                data: points.map(p => p.revenue),
+                borderColor: colors[name],
+                tension: 0.1
+            });
+        }
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5'],
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {title: {display: true, text: 'Revenue by Scenario'}},
+                scales: {y: {beginAtZero: true, ticks: {callback: v => '$' + (v/1000000).toFixed(1) + 'M'}}}
+            }
+        });
+    });
+</script>
+{% endblock %}

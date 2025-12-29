@@ -1,0 +1,56 @@
+{% extends 'wlj/base.html' %}
+{% block title %}Codebase Metrics{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-8">Codebase Health Metrics</h1>
+
+{% if latest %}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+        <p class="text-4xl font-bold text-indigo-600">{{ latest.total_tests }}</p>
+        <p class="text-gray-500">Automated Tests</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+        <p class="text-4xl font-bold text-green-600">{{ latest.total_apps }}</p>
+        <p class="text-gray-500">Django Apps</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+        <p class="text-4xl font-bold text-blue-600">{{ latest.total_models }}</p>
+        <p class="text-gray-500">Database Models</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+        <p class="text-4xl font-bold text-purple-600">{{ latest.third_party_services }}</p>
+        <p class="text-gray-500">Third-Party Services</p>
+    </div>
+</div>
+
+<div class="bg-white p-6 rounded-lg shadow">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">Metrics History</h2>
+    <table class="w-full">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-4 py-2 text-left">Date</th>
+                <th class="px-4 py-2 text-right">Tests</th>
+                <th class="px-4 py-2 text-right">Apps</th>
+                <th class="px-4 py-2 text-right">Models</th>
+                <th class="px-4 py-2 text-right">Services</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in metrics %}
+            <tr class="border-t">
+                <td class="px-4 py-2">{{ m.captured_at|date:"M d, Y" }}</td>
+                <td class="px-4 py-2 text-right">{{ m.total_tests }}</td>
+                <td class="px-4 py-2 text-right">{{ m.total_apps }}</td>
+                <td class="px-4 py-2 text-right">{{ m.total_models }}</td>
+                <td class="px-4 py-2 text-right">{{ m.third_party_services }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="bg-yellow-100 p-6 rounded-lg">
+    <p class="text-yellow-800">No codebase metrics imported yet.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends 'wlj/base.html' %}
+{% block title %}Investor Data Room{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-2">Investor Data Room</h1>
+<p class="text-gray-600 mb-8">Confidential documents for authorized personnel only.</p>
+
+<div class="bg-white p-6 rounded-lg shadow">
+    {% if all_documents %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for doc in all_documents %}
+        <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex items-start justify-between">
+                <div>
+                    <span class="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-800">
+                        {{ doc.get_document_type_display }}
+                    </span>
+                    <h3 class="font-bold text-gray-800 mt-2">{{ doc.title }}</h3>
+                    <p class="text-sm text-gray-500 mt-1">Version {{ doc.version }}</p>
+                    {% if doc.description %}
+                    <p class="text-sm text-gray-600 mt-2">{{ doc.description }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="mt-4 flex justify-between items-center">
+                <span class="text-xs text-gray-400">{{ doc.download_count }} downloads</span>
+                <a href="{% url 'wlj:download' doc.pk %}"
+                   class="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700">
+                    Download
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No documents</h3>
+        <p class="mt-1 text-sm text-gray-500">Upload documents via the admin panel.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
