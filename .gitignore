@@ -1,0 +1,18 @@
+# Environment
+.env
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Database (local dev)
+db.sqlite3
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
