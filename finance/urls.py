@@ -8,6 +8,13 @@ from . import views
 app_name = 'finance'
 
 urlpatterns = [
+    # Transaction CRUD (Phase 6)
+    path('transactions/', views.transaction_list, name='transaction_list'),
+    path('transactions/new/', views.transaction_create, name='transaction_create'),
+    path('transactions/<uuid:transaction_id>/', views.transaction_detail, name='transaction_detail'),
+    path('transactions/<uuid:transaction_id>/edit/', views.transaction_edit, name='transaction_edit'),
+    path('transactions/<uuid:transaction_id>/delete/', views.transaction_delete, name='transaction_delete'),
+
     # Receipt upload/management endpoints (Phase 4)
     path('transactions/<uuid:transaction_id>/receipts/', views.list_transaction_receipts, name='transaction_receipts'),
     path('transactions/<uuid:transaction_id>/receipts/upload/', views.upload_receipt, name='upload_receipt'),
@@ -23,4 +30,6 @@ urlpatterns = [
 
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
+    path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),
+    path('api/categories/', views.get_categories_by_type, name='categories_by_type'),
 ]

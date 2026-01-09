@@ -2,16 +2,19 @@
 Views for the finance app.
 """
 import logging
-import mimetypes
 
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import JsonResponse, FileResponse, Http404
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render, redirect
+from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
-from .models import Receipt, Transaction
-from .forms import validate_receipt_file
+from .models import Receipt, Transaction, Category
+from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
 
 logger = logging.getLogger(__name__)
@@ -389,3 +392,224 @@ def list_transaction_receipts(request, transaction_id):
             for r in receipts
         ]
     })
+
+
+# =============================================================================
+# Transaction Views (Phase 6)
+# =============================================================================
+
+@login_required
+def transaction_list(request):
+    """
+    List all transactions with filtering and pagination.
+
+    GET /finance/transactions/
+    """
+    form = TransactionFilterForm(request.GET)
+    transactions = Transaction.objects.select_related('account', 'category').all()
+
+    # Apply filters
+    if form.is_valid():
+        if form.cleaned_data.get('account'):
+            transactions = transactions.filter(account=form.cleaned_data['account'])
+
+        if form.cleaned_data.get('transaction_type'):
+            transactions = transactions.filter(
+                transaction_type=form.cleaned_data['transaction_type']
+            )
+
+        if form.cleaned_data.get('category'):
+            transactions = transactions.filter(category=form.cleaned_data['category'])
+
+        if form.cleaned_data.get('date_from'):
+            transactions = transactions.filter(
+                transaction_date__gte=form.cleaned_data['date_from']
+            )
+
+        if form.cleaned_data.get('date_to'):
+            transactions = transactions.filter(
+                transaction_date__lte=form.cleaned_data['date_to']
+            )
+
+        if form.cleaned_data.get('search'):
+            search = form.cleaned_data['search']
+            transactions = transactions.filter(
+                Q(description__icontains=search) | Q(vendor__icontains=search)
+            )
+
+    # Pagination
+    paginator = Paginator(transactions, 25)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'finance/transaction_list.html', {
+        'transactions': page_obj,
+        'filter_form': form,
+        'total_count': paginator.count,
+    })
+
+
+@login_required
+def transaction_create(request):
+    """
+    Create a new transaction.
+
+    GET/POST /finance/transactions/new/
+    """
+    if request.method == 'POST':
+        form = TransactionForm(request.POST)
+        if form.is_valid():
+            transaction = form.save(commit=False)
+            transaction.created_by = request.user
+            transaction.save()
+            messages.success(request, 'Transaction created successfully.')
+            return redirect('finance:transaction_detail', transaction_id=transaction.id)
+    else:
+        form = TransactionForm()
+
+    # Get categories for JavaScript filtering
+    expense_categories = list(
+        Category.objects.filter(is_active=True, category_type='expense')
+        .values('id', 'name')
+    )
+    income_categories = list(
+        Category.objects.filter(is_active=True, category_type='income')
+        .values('id', 'name')
+    )
+
+    return render(request, 'finance/transaction_form.html', {
+        'form': form,
+        'title': 'New Transaction',
+        'expense_categories': expense_categories,
+        'income_categories': income_categories,
+    })
+
+
+@login_required
+def transaction_edit(request, transaction_id):
+    """
+    Edit an existing transaction.
+
+    GET/POST /finance/transactions/<id>/edit/
+    """
+    transaction = get_object_or_404(Transaction, pk=transaction_id)
+
+    if request.method == 'POST':
+        form = TransactionForm(request.POST, instance=transaction)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Transaction updated successfully.')
+            return redirect('finance:transaction_detail', transaction_id=transaction.id)
+    else:
+        form = TransactionForm(instance=transaction)
+
+    # Get categories for JavaScript filtering
+    expense_categories = list(
+        Category.objects.filter(is_active=True, category_type='expense')
+        .values('id', 'name')
+    )
+    income_categories = list(
+        Category.objects.filter(is_active=True, category_type='income')
+        .values('id', 'name')
+    )
+
+    return render(request, 'finance/transaction_form.html', {
+        'form': form,
+        'transaction': transaction,
+        'title': 'Edit Transaction',
+        'expense_categories': expense_categories,
+        'income_categories': income_categories,
+    })
+
+
+@login_required
+def transaction_detail(request, transaction_id):
+    """
+    View transaction details.
+
+    GET /finance/transactions/<id>/
+    """
+    transaction = get_object_or_404(
+        Transaction.objects.select_related('account', 'category', 'transfer_to_account'),
+        pk=transaction_id
+    )
+    receipts = transaction.receipts.all()
+
+    return render(request, 'finance/transaction_detail.html', {
+        'transaction': transaction,
+        'receipts': receipts,
+    })
+
+
+@login_required
+@require_POST
+def transaction_delete(request, transaction_id):
+    """
+    Delete a transaction.
+
+    POST /finance/transactions/<id>/delete/
+    """
+    transaction = get_object_or_404(Transaction, pk=transaction_id)
+
+    # Delete associated receipts first
+    for receipt in transaction.receipts.all():
+        if receipt.file:
+            receipt.file.delete(save=False)
+        receipt.delete()
+
+    transaction.delete()
+    messages.success(request, 'Transaction deleted successfully.')
+    return redirect('finance:transaction_list')
+
+
+@login_required
+@require_GET
+def vendor_suggest(request):
+    """
+    Auto-suggest vendors based on input.
+
+    GET /finance/api/vendor-suggest/?q=<query>
+
+    Returns JSON list of matching vendor names.
+    """
+    query = request.GET.get('q', '').strip()
+
+    if len(query) < 2:
+        return JsonResponse({'vendors': []})
+
+    # Get distinct vendors matching the query
+    vendors = (
+        Transaction.objects
+        .filter(vendor__icontains=query)
+        .exclude(vendor='')
+        .values_list('vendor', flat=True)
+        .distinct()
+        .order_by('vendor')[:10]
+    )
+
+    return JsonResponse({'vendors': list(vendors)})
+
+
+@login_required
+@require_GET
+def get_categories_by_type(request):
+    """
+    Get categories filtered by type.
+
+    GET /finance/api/categories/?type=expense|income
+
+    Returns JSON list of categories.
+    """
+    category_type = request.GET.get('type', '')
+
+    if category_type not in ('expense', 'income'):
+        return JsonResponse({'categories': []})
+
+    categories = (
+        Category.objects
+        .filter(is_active=True, category_type=category_type)
+        .values('id', 'name')
+        .order_by('display_order', 'name')
+    )
+
+    return JsonResponse({'categories': list(categories)})

@@ -1,11 +1,13 @@
 """
 Forms for the finance app.
 """
+from datetime import date
+
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-from .models import Receipt
+from .models import Receipt, Transaction, Account, Category
 
 
 class ReceiptUploadForm(forms.ModelForm):
@@ -111,3 +113,123 @@ def validate_receipt_file(file) -> dict:
         'file_size': file.size,
         'original_filename': filename,
     }
+
+
+class TransactionForm(forms.ModelForm):
+    """Form for creating and editing transactions."""
+
+    class Meta:
+        model = Transaction
+        fields = [
+            'account',
+            'transaction_type',
+            'category',
+            'amount',
+            'transaction_date',
+            'description',
+            'vendor',
+            'reference_number',
+            'transfer_to_account',
+            'notes',
+        ]
+        widgets = {
+            'transaction_date': forms.DateInput(
+                attrs={'type': 'date'},
+                format='%Y-%m-%d'
+            ),
+            'notes': forms.Textarea(attrs={'rows': 3}),
+            'description': forms.TextInput(attrs={'placeholder': 'Description'}),
+            'vendor': forms.TextInput(attrs={'placeholder': 'Vendor (optional)'}),
+            'amount': forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Set default date to today
+        if not self.instance.pk:
+            self.initial['transaction_date'] = date.today()
+
+        # Filter accounts to active only
+        self.fields['account'].queryset = Account.objects.filter(is_active=True)
+        self.fields['transfer_to_account'].queryset = Account.objects.filter(is_active=True)
+        self.fields['transfer_to_account'].required = False
+
+        # Filter categories to active only
+        self.fields['category'].queryset = Category.objects.filter(is_active=True)
+        self.fields['category'].required = False
+
+        # Add CSS classes for styling
+        for field_name, field in self.fields.items():
+            field.widget.attrs.setdefault('class', 'form-control')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        transaction_type = cleaned_data.get('transaction_type')
+        category = cleaned_data.get('category')
+        account = cleaned_data.get('account')
+        transfer_to_account = cleaned_data.get('transfer_to_account')
+        transaction_date = cleaned_data.get('transaction_date')
+
+        # Validate category for income/expense
+        if transaction_type in ('income', 'expense'):
+            if not category:
+                self.add_error('category', 'Category is required for income and expense transactions.')
+            elif transaction_type == 'income' and category.category_type != 'income':
+                self.add_error('category', 'Income transactions require an income category.')
+            elif transaction_type == 'expense' and category.category_type != 'expense':
+                self.add_error('category', 'Expense transactions require an expense category.')
+
+        # Validate transfer
+        if transaction_type == 'transfer':
+            if not transfer_to_account:
+                self.add_error('transfer_to_account', 'Transfer transactions require a destination account.')
+            elif transfer_to_account == account:
+                self.add_error('transfer_to_account', 'Cannot transfer to the same account.')
+
+        # Validate owner's draw
+        if transaction_type == 'owners_draw':
+            if account and account.account_type != 'checking':
+                self.add_error('account', "Owner's draws must come from a checking account.")
+
+        # Validate date not in future
+        if transaction_date and transaction_date > date.today():
+            self.add_error('transaction_date', 'Transaction date cannot be in the future.')
+
+        return cleaned_data
+
+
+class TransactionFilterForm(forms.Form):
+    """Form for filtering transaction list."""
+
+    account = forms.ModelChoiceField(
+        queryset=Account.objects.filter(is_active=True),
+        required=False,
+        empty_label='All Accounts'
+    )
+    transaction_type = forms.ChoiceField(
+        choices=[('', 'All Types')] + list(Transaction.TRANSACTION_TYPE_CHOICES),
+        required=False
+    )
+    category = forms.ModelChoiceField(
+        queryset=Category.objects.filter(is_active=True),
+        required=False,
+        empty_label='All Categories'
+    )
+    date_from = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date'})
+    )
+    date_to = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date'})
+    )
+    search = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'placeholder': 'Search description or vendor'})
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name, field in self.fields.items():
+            field.widget.attrs.setdefault('class', 'form-control')

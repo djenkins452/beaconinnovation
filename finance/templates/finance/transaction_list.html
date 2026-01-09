@@ -1,0 +1,104 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Transactions{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Transactions</h1>
+        <a href="{% url 'finance:transaction_create' %}" class="btn btn-primary">+ New Transaction</a>
+    </div>
+
+    <form method="get" class="mb-3">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.account }}
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.transaction_type }}
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.category }}
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.date_from }}
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.date_to }}
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                {{ filter_form.search }}
+            </div>
+        </div>
+        <button type="submit" class="btn btn-secondary">Filter</button>
+        <a href="{% url 'finance:transaction_list' %}" class="btn btn-secondary">Clear</a>
+    </form>
+
+    <p class="text-muted mb-3">{{ total_count }} transaction{{ total_count|pluralize }}</p>
+
+    {% if transactions %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Account</th>
+                <th>Type</th>
+                <th>Category</th>
+                <th class="text-right">Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for transaction in transactions %}
+            <tr>
+                <td>{{ transaction.transaction_date|date:"M d, Y" }}</td>
+                <td>
+                    <a href="{% url 'finance:transaction_detail' transaction.id %}">
+                        {{ transaction.description|truncatechars:40 }}
+                    </a>
+                    {% if transaction.vendor %}
+                        <br><small class="text-muted">{{ transaction.vendor }}</small>
+                    {% endif %}
+                </td>
+                <td>{{ transaction.account.name }}</td>
+                <td>
+                    <span class="badge badge-{{ transaction.transaction_type }}">
+                        {{ transaction.get_transaction_type_display }}
+                    </span>
+                </td>
+                <td>{{ transaction.category.name|default:"-" }}</td>
+                <td class="text-right">${{ transaction.amount }}</td>
+                <td>
+                    <a href="{% url 'finance:transaction_edit' transaction.id %}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if transactions.has_other_pages %}
+    <ul class="pagination">
+        {% if transactions.has_previous %}
+            <li><a href="?page={{ transactions.previous_page_number }}">&laquo; Prev</a></li>
+        {% endif %}
+
+        {% for num in transactions.paginator.page_range %}
+            {% if transactions.number == num %}
+                <li><span class="current">{{ num }}</span></li>
+            {% elif num > transactions.number|add:'-3' and num < transactions.number|add:'3' %}
+                <li><a href="?page={{ num }}">{{ num }}</a></li>
+            {% endif %}
+        {% endfor %}
+
+        {% if transactions.has_next %}
+            <li><a href="?page={{ transactions.next_page_number }}">Next &raquo;</a></li>
+        {% endif %}
+    </ul>
+    {% endif %}
+
+    {% else %}
+    <p class="text-muted">No transactions found.</p>
+    {% endif %}
+</div>
+{% endblock %}

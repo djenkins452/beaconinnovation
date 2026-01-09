@@ -6,6 +6,41 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 6: Transaction Entry — Manual Entry
+- Implemented full transaction CRUD with forms, views, and templates
+- Files created:
+  - `finance/templates/finance/base.html` - Base template with styling
+  - `finance/templates/finance/transaction_list.html` - List view with filters, pagination
+  - `finance/templates/finance/transaction_form.html` - Create/edit form with JS enhancements
+  - `finance/templates/finance/transaction_detail.html` - Detail view with receipt management
+  - `finance/tests/test_transaction_views.py` - 45 tests for transaction views
+- Files modified:
+  - `finance/forms.py` - Added TransactionForm, TransactionFilterForm
+  - `finance/views.py` - Added transaction CRUD views, API endpoints
+  - `finance/urls.py` - Added transaction and API routes
+  - `finance/models.py` - Fixed owner's draw validation guard
+- Views:
+  - `transaction_list` - List with filtering (account, type, category, date range, search)
+  - `transaction_create` - Create new transactions
+  - `transaction_edit` - Edit existing transactions
+  - `transaction_detail` - View details with receipt upload
+  - `transaction_delete` - Delete with receipt cleanup
+- API Endpoints:
+  - `GET /finance/api/vendor-suggest/?q=` - Vendor auto-suggest (min 2 chars)
+  - `GET /finance/api/categories/?type=expense|income` - Categories by type
+- Form Validation:
+  - Category required for income/expense, must match transaction type
+  - Transfer requires destination account, cannot transfer to same account
+  - Owner's draw must come from checking account
+  - Transaction date cannot be in the future
+- Features:
+  - Pagination (25 per page)
+  - Dynamic category filtering based on transaction type (JavaScript)
+  - Vendor auto-suggest with debouncing
+  - Receipt upload integration from detail view
+- Tests: 45 new tests (191 total now passing)
+- Notes: Phase 6 complete.
+
 ### Phase 5: Receipt OCR Processing
 - Implemented Tesseract OCR integration for receipt text extraction
 - Files created:

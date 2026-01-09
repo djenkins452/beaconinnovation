@@ -1,0 +1,195 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Transaction Details{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Transaction Details</h1>
+        <div>
+            <a href="{% url 'finance:transaction_edit' transaction.id %}" class="btn btn-primary">Edit</a>
+            <a href="{% url 'finance:transaction_list' %}" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+
+    <table>
+        <tr>
+            <th style="width: 200px;">Date</th>
+            <td>{{ transaction.transaction_date|date:"F d, Y" }}</td>
+        </tr>
+        <tr>
+            <th>Type</th>
+            <td>
+                <span class="badge badge-{{ transaction.transaction_type }}">
+                    {{ transaction.get_transaction_type_display }}
+                </span>
+            </td>
+        </tr>
+        <tr>
+            <th>Account</th>
+            <td>{{ transaction.account }}</td>
+        </tr>
+        {% if transaction.transaction_type == 'transfer' %}
+        <tr>
+            <th>Transfer To</th>
+            <td>{{ transaction.transfer_to_account }}</td>
+        </tr>
+        {% endif %}
+        {% if transaction.category %}
+        <tr>
+            <th>Category</th>
+            <td>{{ transaction.category.name }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <th>Amount</th>
+            <td><strong>${{ transaction.amount }}</strong></td>
+        </tr>
+        <tr>
+            <th>Description</th>
+            <td>{{ transaction.description }}</td>
+        </tr>
+        {% if transaction.vendor %}
+        <tr>
+            <th>Vendor</th>
+            <td>{{ transaction.vendor }}</td>
+        </tr>
+        {% endif %}
+        {% if transaction.reference_number %}
+        <tr>
+            <th>Reference Number</th>
+            <td>{{ transaction.reference_number }}</td>
+        </tr>
+        {% endif %}
+        {% if transaction.notes %}
+        <tr>
+            <th>Notes</th>
+            <td>{{ transaction.notes|linebreaks }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <th>Created</th>
+            <td>{{ transaction.created_at|date:"F d, Y g:i a" }}{% if transaction.created_by %} by {{ transaction.created_by.username }}{% endif %}</td>
+        </tr>
+        {% if transaction.is_reconciled %}
+        <tr>
+            <th>Reconciled</th>
+            <td>{{ transaction.reconciled_at|date:"F d, Y g:i a" }}</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2>Receipts</h2>
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('receipt-upload').click()">
+            + Upload Receipt
+        </button>
+    </div>
+
+    <form id="upload-form" style="display: none;">
+        <input type="file" id="receipt-upload" accept=".pdf,.jpg,.jpeg,.png" onchange="uploadReceipt(this)">
+    </form>
+
+    <div id="receipts-list">
+        {% if receipts %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>OCR</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for receipt in receipts %}
+                <tr id="receipt-{{ receipt.id }}">
+                    <td>{{ receipt.original_filename }}</td>
+                    <td>{{ receipt.file_type|upper }}</td>
+                    <td>{{ receipt.file_size|filesizeformat }}</td>
+                    <td>{{ receipt.uploaded_at|date:"M d, Y" }}</td>
+                    <td>
+                        {% if receipt.ocr_processed %}
+                            <span class="badge" style="background-color: #27ae60; color: white;">Processed</span>
+                        {% else %}
+                            <span class="badge" style="background-color: #95a5a6; color: white;">Pending</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'finance:view_receipt' receipt.id %}" target="_blank" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">View</a>
+                        <a href="{% url 'finance:download_receipt' receipt.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">Download</a>
+                        <button type="button" onclick="deleteReceipt('{{ receipt.id }}')" class="btn btn-danger" style="padding: 3px 8px; font-size: 11px;">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" id="no-receipts">No receipts attached. Expenses should have receipt documentation.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function uploadReceipt(input) {
+        if (!input.files || !input.files[0]) return;
+
+        const file = input.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch('{% url "finance:upload_receipt" transaction.id %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Upload failed: ' + data.error);
+            }
+        })
+        .catch(err => {
+            alert('Upload failed. Please try again.');
+        });
+
+        input.value = '';
+    }
+
+    function deleteReceipt(receiptId) {
+        if (!confirm('Are you sure you want to delete this receipt?')) return;
+
+        fetch('/finance/receipts/' + receiptId + '/delete/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('receipt-' + receiptId).remove();
+                const tbody = document.querySelector('#receipts-list tbody');
+                if (!tbody || tbody.children.length === 0) {
+                    location.reload();
+                }
+            } else {
+                alert('Delete failed: ' + data.error);
+            }
+        })
+        .catch(err => {
+            alert('Delete failed. Please try again.');
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,231 @@
+{% extends "finance/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>{{ title }}</h1>
+
+    <form method="post" id="transaction-form">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-error">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group">
+                <label for="id_account">Account *</label>
+                {{ form.account }}
+                {% if form.account.errors %}
+                <div class="error-list">{{ form.account.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_transaction_type">Transaction Type *</label>
+                {{ form.transaction_type }}
+                {% if form.transaction_type.errors %}
+                <div class="error-list">{{ form.transaction_type.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_amount">Amount *</label>
+                {{ form.amount }}
+                {% if form.amount.errors %}
+                <div class="error-list">{{ form.amount.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_transaction_date">Date *</label>
+                {{ form.transaction_date }}
+                {% if form.transaction_date.errors %}
+                <div class="error-list">{{ form.transaction_date.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group" id="category-group">
+                <label for="id_category">Category</label>
+                {{ form.category }}
+                {% if form.category.errors %}
+                <div class="error-list">{{ form.category.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group" id="transfer-account-group" style="display: none;">
+                <label for="id_transfer_to_account">Transfer To Account</label>
+                {{ form.transfer_to_account }}
+                {% if form.transfer_to_account.errors %}
+                <div class="error-list">{{ form.transfer_to_account.errors }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="id_description">Description *</label>
+            {{ form.description }}
+            {% if form.description.errors %}
+            <div class="error-list">{{ form.description.errors }}</div>
+            {% endif %}
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group">
+                <label for="id_vendor">Vendor</label>
+                {{ form.vendor }}
+                <div id="vendor-suggestions" style="display: none; border: 1px solid #ddd; border-top: none; max-height: 150px; overflow-y: auto;"></div>
+                {% if form.vendor.errors %}
+                <div class="error-list">{{ form.vendor.errors }}</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_reference_number">Reference Number</label>
+                {{ form.reference_number }}
+                {% if form.reference_number.errors %}
+                <div class="error-list">{{ form.reference_number.errors }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="id_notes">Notes</label>
+            {{ form.notes }}
+            {% if form.notes.errors %}
+            <div class="error-list">{{ form.notes.errors }}</div>
+            {% endif %}
+        </div>
+
+        <div class="mt-3">
+            <button type="submit" class="btn btn-primary">
+                {% if transaction %}Update{% else %}Create{% endif %} Transaction
+            </button>
+            <a href="{% if transaction %}{% url 'finance:transaction_detail' transaction.id %}{% else %}{% url 'finance:transaction_list' %}{% endif %}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+{% if transaction %}
+<div class="card mt-3">
+    <h2>Danger Zone</h2>
+    <p class="text-muted mb-3">Deleting a transaction cannot be undone. Associated receipts will also be deleted.</p>
+    <form method="post" action="{% url 'finance:transaction_delete' transaction.id %}" onsubmit="return confirm('Are you sure you want to delete this transaction?');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Delete Transaction</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Category data from server
+    const expenseCategories = {{ expense_categories|safe }};
+    const incomeCategories = {{ income_categories|safe }};
+
+    const typeSelect = document.getElementById('id_transaction_type');
+    const categorySelect = document.getElementById('id_category');
+    const categoryGroup = document.getElementById('category-group');
+    const transferGroup = document.getElementById('transfer-account-group');
+    const vendorInput = document.getElementById('id_vendor');
+    const suggestionsDiv = document.getElementById('vendor-suggestions');
+
+    // Update category options based on transaction type
+    function updateCategories() {
+        const type = typeSelect.value;
+        const currentValue = categorySelect.value;
+
+        // Show/hide category and transfer fields
+        if (type === 'transfer' || type === 'owners_draw') {
+            categoryGroup.style.display = 'none';
+            categorySelect.value = '';
+        } else {
+            categoryGroup.style.display = 'block';
+        }
+
+        if (type === 'transfer') {
+            transferGroup.style.display = 'block';
+        } else {
+            transferGroup.style.display = 'none';
+        }
+
+        // Filter categories
+        let categories = [];
+        if (type === 'expense') {
+            categories = expenseCategories;
+        } else if (type === 'income') {
+            categories = incomeCategories;
+        }
+
+        // Update category dropdown
+        categorySelect.innerHTML = '<option value="">---------</option>';
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.id;
+            option.textContent = cat.name;
+            if (cat.id === currentValue) {
+                option.selected = true;
+            }
+            categorySelect.appendChild(option);
+        });
+    }
+
+    typeSelect.addEventListener('change', updateCategories);
+
+    // Initialize on page load
+    updateCategories();
+
+    // Vendor auto-suggest
+    let debounceTimer;
+    vendorInput.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const query = this.value.trim();
+
+        if (query.length < 2) {
+            suggestionsDiv.style.display = 'none';
+            return;
+        }
+
+        debounceTimer = setTimeout(() => {
+            fetch(`/finance/api/vendor-suggest/?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.vendors && data.vendors.length > 0) {
+                        suggestionsDiv.innerHTML = '';
+                        data.vendors.forEach(vendor => {
+                            const div = document.createElement('div');
+                            div.style.padding = '8px 10px';
+                            div.style.cursor = 'pointer';
+                            div.textContent = vendor;
+                            div.addEventListener('click', () => {
+                                vendorInput.value = vendor;
+                                suggestionsDiv.style.display = 'none';
+                            });
+                            div.addEventListener('mouseenter', () => {
+                                div.style.backgroundColor = '#f5f5f5';
+                            });
+                            div.addEventListener('mouseleave', () => {
+                                div.style.backgroundColor = 'white';
+                            });
+                            suggestionsDiv.appendChild(div);
+                        });
+                        suggestionsDiv.style.display = 'block';
+                    } else {
+                        suggestionsDiv.style.display = 'none';
+                    }
+                });
+        }, 300);
+    });
+
+    // Hide suggestions when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!vendorInput.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+            suggestionsDiv.style.display = 'none';
+        }
+    });
+</script>
+{% endblock %}

@@ -252,7 +252,7 @@ class Transaction(models.Model):
             })
 
         # Owner's draw must be from checking account
-        if self.transaction_type == 'owners_draw':
+        if self.transaction_type == 'owners_draw' and self.account_id:
             if self.account.account_type != 'checking':
                 raise ValidationError({
                     'account': "Owner's draws must come from a checking account."
