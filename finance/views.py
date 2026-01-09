@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum, Case, When, Value
@@ -21,6 +22,37 @@ from .ocr import process_receipt_image, is_tesseract_available, OCRError
 from .importers import AmexCSVParser, CSVImporter, validate_csv_file
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Authentication Views
+# =============================================================================
+
+def finance_login(request):
+    """Login view for the finance app."""
+    error = None
+
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '')
+
+        user = authenticate(request, username=username, password=password)
+
+        if user is not None:
+            login(request, user)
+            # Redirect to next URL or dashboard
+            next_url = request.GET.get('next', reverse('finance:dashboard'))
+            return redirect(next_url)
+        else:
+            error = 'Invalid credentials.'
+
+    return render(request, 'finance/login.html', {'error': error})
+
+
+def finance_logout(request):
+    """Logout view for the finance app."""
+    logout(request)
+    return redirect('finance:login')
 
 
 # =============================================================================
@@ -143,7 +175,7 @@ def _get_income_by_category(start_date, end_date):
     return list(income)
 
 
-@login_required
+@login_required(login_url='finance:login')
 def dashboard(request):
     """
     Main financial dashboard.
@@ -214,7 +246,7 @@ def dashboard(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def spending_report(request):
     """
     Category spending report.
@@ -265,7 +297,7 @@ def spending_report(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def income_statement(request):
     """
     Income statement (P&L) report.
@@ -327,7 +359,7 @@ def income_statement(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def dashboard_data_api(request):
     """
     API endpoint for dashboard chart data.
@@ -388,7 +420,7 @@ def dashboard_data_api(request):
     return JsonResponse({'error': 'Invalid chart type'}, status=400)
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def process_receipt_ocr(request, receipt_id):
     """
@@ -460,7 +492,7 @@ def process_receipt_ocr(request, receipt_id):
         }, status=500)
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def rerun_receipt_ocr(request, receipt_id):
     """
@@ -486,7 +518,7 @@ def rerun_receipt_ocr(request, receipt_id):
     return process_receipt_ocr(request, receipt_id)
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def get_receipt_ocr_status(request, receipt_id):
     """
@@ -516,7 +548,7 @@ def get_receipt_ocr_status(request, receipt_id):
         })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def check_tesseract_status(request):
     """
@@ -537,7 +569,7 @@ def check_tesseract_status(request):
 # Receipt Upload Views (Phase 4)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def upload_receipt(request, transaction_id):
     """
@@ -618,7 +650,7 @@ def _check_receipt_access(request, receipt):
     return False
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def view_receipt(request, receipt_id):
     """
@@ -655,7 +687,7 @@ def view_receipt(request, receipt_id):
         raise Http404("Receipt file not found")
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def download_receipt(request, receipt_id):
     """
@@ -692,7 +724,7 @@ def download_receipt(request, receipt_id):
         raise Http404("Receipt file not found")
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def delete_receipt(request, receipt_id):
     """
@@ -732,7 +764,7 @@ def delete_receipt(request, receipt_id):
         }, status=500)
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def get_receipt_info(request, receipt_id):
     """
@@ -767,7 +799,7 @@ def get_receipt_info(request, receipt_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def list_transaction_receipts(request, transaction_id):
     """
@@ -802,7 +834,7 @@ def list_transaction_receipts(request, transaction_id):
 # Transaction Views (Phase 6)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def transaction_list(request):
     """
     List all transactions with filtering and pagination.
@@ -853,7 +885,7 @@ def transaction_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def transaction_create(request):
     """
     Create a new transaction.
@@ -889,7 +921,7 @@ def transaction_create(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def transaction_edit(request, transaction_id):
     """
     Edit an existing transaction.
@@ -926,7 +958,7 @@ def transaction_edit(request, transaction_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def transaction_detail(request, transaction_id):
     """
     View transaction details.
@@ -945,7 +977,7 @@ def transaction_detail(request, transaction_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def transaction_delete(request, transaction_id):
     """
@@ -966,7 +998,7 @@ def transaction_delete(request, transaction_id):
     return redirect('finance:transaction_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def vendor_suggest(request):
     """
@@ -994,7 +1026,7 @@ def vendor_suggest(request):
     return JsonResponse({'vendors': list(vendors)})
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_GET
 def get_categories_by_type(request):
     """
@@ -1023,7 +1055,7 @@ def get_categories_by_type(request):
 # CSV Import Views (Phase 7)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def csv_import_upload(request):
     """
     Upload a CSV file for import.
@@ -1079,7 +1111,7 @@ def csv_import_upload(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def csv_import_preview(request, import_id):
     """
     Preview parsed CSV data before import.
@@ -1166,7 +1198,7 @@ def csv_import_preview(request, import_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def csv_import_results(request, import_id):
     """
     Show import results.
@@ -1180,7 +1212,7 @@ def csv_import_results(request, import_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def csv_import_list(request):
     """
     List all CSV imports.
@@ -1200,7 +1232,7 @@ def csv_import_list(request):
 # Account Management Views (Phase 8)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def account_list(request):
     """
     List all accounts with balances.
@@ -1229,7 +1261,7 @@ def account_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def account_create(request):
     """
     Create a new account.
@@ -1253,7 +1285,7 @@ def account_create(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def account_edit(request, account_id):
     """
     Edit an existing account.
@@ -1278,7 +1310,7 @@ def account_edit(request, account_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def account_detail(request, account_id):
     """
     View account details with transaction history.
@@ -1310,7 +1342,7 @@ def account_detail(request, account_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def account_toggle_active(request, account_id):
     """
@@ -1332,7 +1364,7 @@ def account_toggle_active(request, account_id):
 # Category Management Views (Phase 9)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def category_list(request):
     """
     List all categories grouped by type.
@@ -1353,7 +1385,7 @@ def category_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def category_create(request):
     """
     Create a new category.
@@ -1380,7 +1412,7 @@ def category_create(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def category_edit(request, category_id):
     """
     Edit an existing category.
@@ -1405,7 +1437,7 @@ def category_edit(request, category_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def category_detail(request, category_id):
     """
     View category details with transaction count.
@@ -1428,7 +1460,7 @@ def category_detail(request, category_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def category_delete(request, category_id):
     """
@@ -1463,7 +1495,7 @@ def category_delete(request, category_id):
     return redirect('finance:category_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def category_toggle_active(request, category_id):
     """
@@ -1485,7 +1517,7 @@ def category_toggle_active(request, category_id):
 # Recurring Transaction Views (Phase 11)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def recurring_list(request):
     """
     List all recurring transactions.
@@ -1546,7 +1578,7 @@ def recurring_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def recurring_create(request):
     """
     Create a new recurring transaction template.
@@ -1573,7 +1605,7 @@ def recurring_create(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def recurring_edit(request, recurring_id):
     """
     Edit an existing recurring transaction template.
@@ -1601,7 +1633,7 @@ def recurring_edit(request, recurring_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def recurring_detail(request, recurring_id):
     """
     View recurring transaction details.
@@ -1627,7 +1659,7 @@ def recurring_detail(request, recurring_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def recurring_toggle_active(request, recurring_id):
     """
@@ -1645,7 +1677,7 @@ def recurring_toggle_active(request, recurring_id):
     return redirect('finance:recurring_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def recurring_delete(request, recurring_id):
     """
@@ -1663,7 +1695,7 @@ def recurring_delete(request, recurring_id):
     return redirect('finance:recurring_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def recurring_generate(request, recurring_id):
     """
@@ -1768,7 +1800,7 @@ def _get_quarter_dates(quarter, year):
     return quarter_starts[quarter], quarter_ends[quarter]
 
 
-@login_required
+@login_required(login_url='finance:login')
 def alert_list(request):
     """
     List all tax alerts.
@@ -1799,7 +1831,7 @@ def alert_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def alert_detail(request, alert_id):
     """
     View tax alert details.
@@ -1845,7 +1877,7 @@ def alert_detail(request, alert_id):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def alert_acknowledge(request, alert_id):
     """
@@ -1879,7 +1911,7 @@ def alert_acknowledge(request, alert_id):
     return redirect('finance:alert_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def alert_unacknowledge(request, alert_id):
     """
@@ -1901,7 +1933,7 @@ def alert_unacknowledge(request, alert_id):
     return redirect('finance:alert_list')
 
 
-@login_required
+@login_required(login_url='finance:login')
 @require_POST
 def alert_calculate(request):
     """
@@ -2009,7 +2041,7 @@ def alert_calculate(request):
 # Audit Log Views (Phase 13)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def audit_log_list(request):
     """
     List audit logs with filtering.
@@ -2093,7 +2125,7 @@ def audit_log_list(request):
     })
 
 
-@login_required
+@login_required(login_url='finance:login')
 def audit_log_detail(request, log_id):
     """
     View audit log details.
@@ -2127,7 +2159,7 @@ def audit_log_detail(request, log_id):
 # Export Views (Phase 14)
 # =============================================================================
 
-@login_required
+@login_required(login_url='finance:login')
 def export_transactions(request):
     """
     Export transactions to CSV.
@@ -2220,7 +2252,7 @@ def export_transactions(request):
     return response
 
 
-@login_required
+@login_required(login_url='finance:login')
 def export_spending_report(request):
     """
     Export spending report to CSV.
@@ -2291,7 +2323,7 @@ def export_spending_report(request):
     return response
 
 
-@login_required
+@login_required(login_url='finance:login')
 def export_income_statement(request):
     """
     Export income statement to CSV.

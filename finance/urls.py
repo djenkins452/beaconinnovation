@@ -2,12 +2,17 @@
 URL configuration for the finance app.
 """
 from django.urls import path
+from django.contrib.auth import views as auth_views
 
 from . import views
 
 app_name = 'finance'
 
 urlpatterns = [
+    # Authentication
+    path('login/', views.finance_login, name='login'),
+    path('logout/', views.finance_logout, name='logout'),
+
     # Dashboard & Reports (Phase 10)
     path('', views.dashboard, name='dashboard'),
     path('reports/spending/', views.spending_report, name='spending_report'),
