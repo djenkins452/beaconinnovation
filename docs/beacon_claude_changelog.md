@@ -6,6 +6,35 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 7: CSV Import — American Express
+- Implemented CSV import for American Express statement format
+- Files created:
+  - `finance/importers.py` - AmexCSVParser and CSVImporter classes
+  - `finance/templates/finance/csv_import.html` - Upload form
+  - `finance/templates/finance/csv_preview.html` - Preview with category mapping
+  - `finance/templates/finance/csv_results.html` - Import results display
+  - `finance/templates/finance/csv_import_list.html` - Import history list
+  - `finance/tests/test_csv_import.py` - 39 tests for import functionality
+- Files modified:
+  - `finance/views.py` - Added csv_import_upload, csv_import_preview, csv_import_results, csv_import_list
+  - `finance/urls.py` - Added CSV import routes
+- Views:
+  - `csv_import_upload` - Upload form with account selection
+  - `csv_import_preview` - Preview parsed rows, adjust categories
+  - `csv_import_results` - Show import summary and errors
+  - `csv_import_list` - List all imports with status
+- Features:
+  - Amex CSV format parsing with header detection
+  - Date parsing: MM/DD/YYYY, M/D/YYYY, ISO format
+  - Amount parsing with dollar signs and commas
+  - Automatic category mapping (Amex to local)
+  - Duplicate detection by date/amount/description
+  - Per-row category override in preview
+  - Refunds (negative amounts) imported as income
+  - Import history tracking
+- Tests: 39 new tests (230 total now passing)
+- Notes: Phase 7 complete.
+
 ### Phase 6: Transaction Entry — Manual Entry
 - Implemented full transaction CRUD with forms, views, and templates
 - Files created:

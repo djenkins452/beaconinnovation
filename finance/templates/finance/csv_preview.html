@@ -1,0 +1,138 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Preview Import{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Preview Import</h1>
+        <a href="{% url 'finance:csv_import_upload' %}" class="btn btn-secondary">Cancel</a>
+    </div>
+
+    <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+        <div>
+            <strong>File:</strong> {{ csv_import.original_filename }}
+        </div>
+        <div>
+            <strong>Account:</strong> {{ csv_import.account.name }}
+        </div>
+        <div>
+            <strong>Rows:</strong> {{ csv_import.row_count }}
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+        <span class="badge" style="background-color: #27ae60; color: white; padding: 8px 12px;">
+            Valid: {{ valid_count }}
+        </span>
+        {% if duplicate_count > 0 %}
+        <span class="badge" style="background-color: #f39c12; color: white; padding: 8px 12px;">
+            Duplicates: {{ duplicate_count }}
+        </span>
+        {% endif %}
+        {% if error_count > 0 %}
+        <span class="badge" style="background-color: #e74c3c; color: white; padding: 8px 12px;">
+            Errors: {{ error_count }}
+        </span>
+        {% endif %}
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="skip_duplicates" checked>
+                <span>Skip duplicate transactions</span>
+            </label>
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">#</th>
+                        <th style="width: 50px;">Status</th>
+                        <th style="width: 100px;">Date</th>
+                        <th style="min-width: 200px;">Description</th>
+                        <th style="width: 100px; text-align: right;">Amount</th>
+                        <th style="width: 200px;">Category</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in parsed_rows %}
+                    <tr {% if row.error %}style="background-color: #fff3f3;"{% elif row.is_duplicate %}style="background-color: #fffbeb;"{% endif %}>
+                        <td>{{ row.row_number }}</td>
+                        <td>
+                            {% if row.error %}
+                            <span class="badge badge-expense" title="{{ row.error }}">Error</span>
+                            {% elif row.is_duplicate %}
+                            <span class="badge" style="background-color: #f39c12; color: white;" title="Duplicate transaction found">Dup</span>
+                            {% else %}
+                            <span class="badge badge-income">OK</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.date|date:"m/d/Y" }}</td>
+                        <td>
+                            <div>{{ row.description|truncatewords:10 }}</div>
+                            {% if row.vendor and row.vendor != row.description %}
+                            <small class="text-muted">{{ row.vendor }}</small>
+                            {% endif %}
+                            {% if row.error %}
+                            <small style="color: #e74c3c;">{{ row.error }}</small>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: right;">
+                            {% if row.amount %}
+                            ${{ row.amount }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not row.error %}
+                            <select name="category_{{ row.row_number }}" class="form-control" style="font-size: 12px; padding: 4px;">
+                                <option value="">-- No Category --</option>
+                                <optgroup label="Expense">
+                                    {% for cat in expense_categories %}
+                                    <option value="{{ cat.id }}" {% if row.suggested_category_id == cat.id|stringformat:"s" %}selected{% endif %}>
+                                        {{ cat.name }}
+                                    </option>
+                                    {% endfor %}
+                                </optgroup>
+                                <optgroup label="Income">
+                                    {% for cat in income_categories %}
+                                    <option value="{{ cat.id }}" {% if row.suggested_category_id == cat.id|stringformat:"s" %}selected{% endif %}>
+                                        {{ cat.name }}
+                                    </option>
+                                    {% endfor %}
+                                </optgroup>
+                            </select>
+                            {% if row.amex_category %}
+                            <small class="text-muted">Amex: {{ row.amex_category }}</small>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="text-align: center;">No rows found in CSV file.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if valid_count > 0 %}
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+            <button type="submit" class="btn btn-primary">
+                Import {{ valid_count }} Transaction{{ valid_count|pluralize }}
+            </button>
+            <a href="{% url 'finance:csv_import_upload' %}" class="btn btn-secondary">Cancel</a>
+        </div>
+        {% else %}
+        <div style="margin-top: 20px; padding: 20px; background-color: #fff3f3; border-radius: 4px;">
+            <strong>No valid rows to import.</strong> Please fix the errors above or upload a different file.
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}

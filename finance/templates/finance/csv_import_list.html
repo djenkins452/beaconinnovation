@@ -1,0 +1,63 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Import History{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Import History</h1>
+        <a href="{% url 'finance:csv_import_upload' %}" class="btn btn-primary">+ New Import</a>
+    </div>
+
+    {% if imports %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>File</th>
+                <th>Account</th>
+                <th style="text-align: center;">Rows</th>
+                <th style="text-align: center;">Imported</th>
+                <th style="text-align: center;">Skipped</th>
+                <th style="text-align: center;">Errors</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for import in imports %}
+            <tr>
+                <td>{{ import.imported_at|date:"M d, Y" }}</td>
+                <td>{{ import.original_filename|truncatechars:30 }}</td>
+                <td>{{ import.account.name }}</td>
+                <td style="text-align: center;">{{ import.row_count }}</td>
+                <td style="text-align: center;">{{ import.imported_count }}</td>
+                <td style="text-align: center;">{{ import.skipped_count }}</td>
+                <td style="text-align: center;">{{ import.error_count }}</td>
+                <td>
+                    {% if import.status == 'completed' %}
+                    <span class="badge badge-income">Completed</span>
+                    {% elif import.status == 'pending' %}
+                    <span class="badge" style="background-color: #f39c12; color: white;">Pending</span>
+                    {% elif import.status == 'processing' %}
+                    <span class="badge" style="background-color: #3498db; color: white;">Processing</span>
+                    {% else %}
+                    <span class="badge badge-expense">Failed</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if import.status == 'pending' %}
+                    <a href="{% url 'finance:csv_import_preview' import.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">Resume</a>
+                    {% else %}
+                    <a href="{% url 'finance:csv_import_results' import.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">View</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No imports yet. Click "New Import" to upload a CSV file.</p>
+    {% endif %}
+</div>
+{% endblock %}

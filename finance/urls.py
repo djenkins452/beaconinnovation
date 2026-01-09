@@ -28,6 +28,12 @@ urlpatterns = [
     path('receipts/<uuid:receipt_id>/ocr/rerun/', views.rerun_receipt_ocr, name='rerun_ocr'),
     path('receipts/<uuid:receipt_id>/ocr/status/', views.get_receipt_ocr_status, name='ocr_status'),
 
+    # CSV Import (Phase 7)
+    path('import/', views.csv_import_upload, name='csv_import_upload'),
+    path('import/<uuid:import_id>/preview/', views.csv_import_preview, name='csv_import_preview'),
+    path('import/<uuid:import_id>/results/', views.csv_import_results, name='csv_import_results'),
+    path('imports/', views.csv_import_list, name='csv_import_list'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

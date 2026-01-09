@@ -1,0 +1,58 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Import CSV{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Import CSV</h1>
+        <a href="{% url 'finance:csv_import_list' %}" class="btn btn-secondary">Import History</a>
+    </div>
+
+    <p class="text-muted">
+        Upload an American Express CSV statement to import transactions.
+        The file will be parsed and you'll have a chance to review and adjust categories before importing.
+    </p>
+
+    <form method="post" enctype="multipart/form-data" style="max-width: 500px;">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="account">Account *</label>
+            <select name="account" id="account" class="form-control" required>
+                <option value="">Select account...</option>
+                {% for account in accounts %}
+                <option value="{{ account.id }}">{{ account.name }} ({{ account.get_account_type_display }})</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted">Select the account this statement is from</small>
+        </div>
+
+        <div class="form-group">
+            <label for="file">CSV File *</label>
+            <input type="file" name="file" id="file" class="form-control" accept=".csv" required>
+            <small class="text-muted">American Express CSV format. Max 5MB.</small>
+        </div>
+
+        <div class="form-group" style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Upload & Preview</button>
+            <a href="{% url 'finance:transaction_list' %}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Expected CSV Format</h2>
+    <p>American Express exports CSV files with the following columns:</p>
+    <ul>
+        <li><strong>Date</strong> - Transaction date (MM/DD/YYYY)</li>
+        <li><strong>Description</strong> - Merchant description</li>
+        <li><strong>Amount</strong> - Transaction amount (positive = charge, negative = credit)</li>
+        <li><strong>Extended Details</strong> - Additional info</li>
+        <li><strong>Appears On Your Statement As</strong> - Statement description</li>
+        <li><strong>Address, City/State, Zip Code, Country</strong> - Merchant location</li>
+        <li><strong>Reference</strong> - Transaction reference number</li>
+        <li><strong>Category</strong> - Amex's category (will be mapped to yours)</li>
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Import Results{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>Import Results</h1>
+
+    <div style="display: flex; gap: 20px; margin: 20px 0;">
+        <div>
+            <strong>File:</strong> {{ csv_import.original_filename }}
+        </div>
+        <div>
+            <strong>Account:</strong> {{ csv_import.account.name }}
+        </div>
+        <div>
+            <strong>Date:</strong> {{ csv_import.imported_at|date:"M d, Y g:i a" }}
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 15px; margin-bottom: 30px;">
+        <div style="padding: 20px; background-color: #e8f5e9; border-radius: 8px; text-align: center; min-width: 120px;">
+            <div style="font-size: 32px; font-weight: bold; color: #27ae60;">{{ csv_import.imported_count }}</div>
+            <div style="color: #666;">Imported</div>
+        </div>
+        <div style="padding: 20px; background-color: #fff3e0; border-radius: 8px; text-align: center; min-width: 120px;">
+            <div style="font-size: 32px; font-weight: bold; color: #f39c12;">{{ csv_import.skipped_count }}</div>
+            <div style="color: #666;">Skipped</div>
+        </div>
+        <div style="padding: 20px; background-color: #ffebee; border-radius: 8px; text-align: center; min-width: 120px;">
+            <div style="font-size: 32px; font-weight: bold; color: #e74c3c;">{{ csv_import.error_count }}</div>
+            <div style="color: #666;">Errors</div>
+        </div>
+    </div>
+
+    {% if csv_import.errors %}
+    <div style="margin-bottom: 20px;">
+        <h2>Errors</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 60px;">Row</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for error in csv_import.errors %}
+                <tr>
+                    <td>{{ error.row }}</td>
+                    <td>{{ error.error }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+        <a href="{% url 'finance:transaction_list' %}" class="btn btn-primary">View Transactions</a>
+        <a href="{% url 'finance:csv_import_upload' %}" class="btn btn-secondary">Import Another</a>
+        <a href="{% url 'finance:csv_import_list' %}" class="btn btn-secondary">Import History</a>
+    </div>
+</div>
+{% endblock %}

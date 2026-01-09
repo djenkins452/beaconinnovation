@@ -13,9 +13,10 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
-from .models import Receipt, Transaction, Category
+from .models import Receipt, Transaction, Category, Account, CSVImport
 from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
+from .importers import AmexCSVParser, CSVImporter, validate_csv_file
 
 logger = logging.getLogger(__name__)
 
@@ -613,3 +614,180 @@ def get_categories_by_type(request):
     )
 
     return JsonResponse({'categories': list(categories)})
+
+
+# =============================================================================
+# CSV Import Views (Phase 7)
+# =============================================================================
+
+@login_required
+def csv_import_upload(request):
+    """
+    Upload a CSV file for import.
+
+    GET: Show upload form
+    POST: Validate and store file, redirect to preview
+
+    GET/POST /finance/import/
+    """
+    accounts = Account.objects.filter(is_active=True)
+
+    if request.method == 'POST':
+        # Get account
+        account_id = request.POST.get('account')
+        if not account_id:
+            messages.error(request, 'Please select an account.')
+            return render(request, 'finance/csv_import.html', {
+                'accounts': accounts,
+            })
+
+        account = get_object_or_404(Account, pk=account_id)
+
+        # Validate file
+        if 'file' not in request.FILES:
+            messages.error(request, 'Please select a CSV file to upload.')
+            return render(request, 'finance/csv_import.html', {
+                'accounts': accounts,
+            })
+
+        uploaded_file = request.FILES['file']
+        validation = validate_csv_file(uploaded_file)
+
+        if not validation['valid']:
+            messages.error(request, validation['error'])
+            return render(request, 'finance/csv_import.html', {
+                'accounts': accounts,
+            })
+
+        # Create CSVImport record
+        csv_import = CSVImport.objects.create(
+            account=account,
+            file=uploaded_file,
+            original_filename=validation['filename'],
+            row_count=validation['row_count'],
+            status='pending',
+            imported_by=request.user,
+        )
+
+        return redirect('finance:csv_import_preview', import_id=csv_import.id)
+
+    return render(request, 'finance/csv_import.html', {
+        'accounts': accounts,
+    })
+
+
+@login_required
+def csv_import_preview(request, import_id):
+    """
+    Preview parsed CSV data before import.
+
+    GET: Show preview with category mapping
+    POST: Perform import with user selections
+
+    GET/POST /finance/import/<id>/preview/
+    """
+    csv_import = get_object_or_404(CSVImport, pk=import_id)
+
+    # Only allow preview of pending imports
+    if csv_import.status != 'pending':
+        messages.error(request, 'This import has already been processed.')
+        return redirect('finance:csv_import_results', import_id=csv_import.id)
+
+    # Parse the CSV
+    try:
+        csv_import.file.seek(0)
+        content = csv_import.file.read().decode('utf-8')
+    except Exception as e:
+        logger.exception(f"Failed to read CSV file for import {import_id}")
+        messages.error(request, 'Failed to read CSV file.')
+        return redirect('finance:csv_import_upload')
+
+    parser = AmexCSVParser(csv_import.account)
+    parsed_rows = parser.parse_csv(content)
+
+    # Get categories for dropdown
+    expense_categories = Category.objects.filter(
+        is_active=True,
+        category_type='expense'
+    ).order_by('display_order', 'name')
+
+    income_categories = Category.objects.filter(
+        is_active=True,
+        category_type='income'
+    ).order_by('display_order', 'name')
+
+    if request.method == 'POST':
+        # Process import
+        csv_import.status = 'processing'
+        csv_import.save()
+
+        # Collect category overrides from form
+        category_overrides = {}
+        for key, value in request.POST.items():
+            if key.startswith('category_'):
+                row_num = key.replace('category_', '')
+                if value:
+                    category_overrides[row_num] = value
+
+        # Get skip duplicates setting
+        skip_duplicates = request.POST.get('skip_duplicates', 'on') == 'on'
+
+        # Perform import
+        importer = CSVImporter(csv_import, request.user)
+        results = importer.import_rows(
+            parsed_rows,
+            category_overrides=category_overrides,
+            skip_duplicates=skip_duplicates,
+        )
+
+        messages.success(
+            request,
+            f'Import complete: {results["imported"]} imported, '
+            f'{results["skipped"]} skipped, {len(results["errors"])} errors.'
+        )
+        return redirect('finance:csv_import_results', import_id=csv_import.id)
+
+    # Count stats for display
+    valid_count = sum(1 for r in parsed_rows if r.is_valid)
+    duplicate_count = sum(1 for r in parsed_rows if r.is_duplicate)
+    error_count = sum(1 for r in parsed_rows if not r.is_valid)
+
+    return render(request, 'finance/csv_preview.html', {
+        'csv_import': csv_import,
+        'parsed_rows': parsed_rows,
+        'expense_categories': expense_categories,
+        'income_categories': income_categories,
+        'valid_count': valid_count,
+        'duplicate_count': duplicate_count,
+        'error_count': error_count,
+    })
+
+
+@login_required
+def csv_import_results(request, import_id):
+    """
+    Show import results.
+
+    GET /finance/import/<id>/results/
+    """
+    csv_import = get_object_or_404(CSVImport, pk=import_id)
+
+    return render(request, 'finance/csv_results.html', {
+        'csv_import': csv_import,
+    })
+
+
+@login_required
+def csv_import_list(request):
+    """
+    List all CSV imports.
+
+    GET /finance/imports/
+    """
+    imports = CSVImport.objects.select_related(
+        'account', 'imported_by'
+    ).order_by('-imported_at')
+
+    return render(request, 'finance/csv_import_list.html', {
+        'imports': imports,
+    })
