@@ -41,6 +41,14 @@ urlpatterns = [
     path('accounts/<uuid:account_id>/edit/', views.account_edit, name='account_edit'),
     path('accounts/<uuid:account_id>/toggle-active/', views.account_toggle_active, name='account_toggle_active'),
 
+    # Category Management (Phase 9)
+    path('categories/', views.category_list, name='category_list'),
+    path('categories/new/', views.category_create, name='category_create'),
+    path('categories/<uuid:category_id>/', views.category_detail, name='category_detail'),
+    path('categories/<uuid:category_id>/edit/', views.category_edit, name='category_edit'),
+    path('categories/<uuid:category_id>/delete/', views.category_delete, name='category_delete'),
+    path('categories/<uuid:category_id>/toggle-active/', views.category_toggle_active, name='category_toggle_active'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

@@ -1,0 +1,119 @@
+{% extends "finance/base.html" %}
+
+{% block title %}{{ category.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>
+            {{ category.name }}
+            {% if category.is_system %}
+            <span class="badge" style="background-color: #3498db; color: white;">System</span>
+            {% endif %}
+        </h1>
+        <div>
+            <a href="{% url 'finance:category_edit' category.id %}" class="btn btn-primary">Edit</a>
+            <a href="{% url 'finance:category_list' %}" class="btn btn-secondary">Back to Categories</a>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 30px; margin-bottom: 30px;">
+        <div style="flex: 1;">
+            <table>
+                <tr>
+                    <th style="width: 150px;">Type</th>
+                    <td>
+                        <span class="badge badge-{{ category.category_type }}">
+                            {{ category.get_category_type_display }}
+                        </span>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>
+                        {% if category.is_active %}
+                        <span class="badge badge-income">Active</span>
+                        {% else %}
+                        <span class="badge" style="background-color: #95a5a6; color: white;">Inactive</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Display Order</th>
+                    <td>{{ category.display_order }}</td>
+                </tr>
+                {% if category.description %}
+                <tr>
+                    <th>Description</th>
+                    <td>{{ category.description }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <th>Created</th>
+                    <td>{{ category.created_at|date:"M d, Y H:i" }}</td>
+                </tr>
+                <tr>
+                    <th>Last Updated</th>
+                    <td>{{ category.updated_at|date:"M d, Y H:i" }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <div style="padding: 30px; background-color: {% if category.category_type == 'expense' %}#ffebee{% else %}#e8f5e9{% endif %}; border-radius: 8px; text-align: center; min-width: 200px;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Total Transactions</div>
+            <div style="font-size: 48px; font-weight: bold; color: {% if category.category_type == 'expense' %}#e74c3c{% else %}#27ae60{% endif %};">
+                {{ transaction_count }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if transactions %}
+<div class="card">
+    <h2>Recent Transactions</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 100px;">Date</th>
+                <th>Description</th>
+                <th>Account</th>
+                <th style="width: 100px; text-align: right;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.transaction_date|date:"M d, Y" }}</td>
+                <td>
+                    <a href="{% url 'finance:transaction_detail' tx.id %}">{{ tx.description|truncatewords:8 }}</a>
+                    {% if tx.vendor %}
+                    <br><small class="text-muted">{{ tx.vendor }}</small>
+                    {% endif %}
+                </td>
+                <td>{{ tx.account.name }}</td>
+                <td style="text-align: right;">
+                    <span style="color: {% if category.category_type == 'expense' %}#e74c3c{% else %}#27ae60{% endif %};">
+                        {% if category.category_type == 'expense' %}-{% else %}+{% endif %}${{ tx.amount|floatformat:2 }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if transaction_count > 10 %}
+    <div style="margin-top: 20px;">
+        <a href="{% url 'finance:transaction_list' %}?category={{ category.id }}" class="btn btn-secondary">
+            View All {{ transaction_count }} Transactions
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% else %}
+<div class="card">
+    <h2>Recent Transactions</h2>
+    <p class="text-muted">No transactions in this category yet.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
 from .models import Receipt, Transaction, Category, Account, CSVImport
-from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm
+from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm, CategoryForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
 from .importers import AmexCSVParser, CSVImporter, validate_csv_file
 
@@ -922,3 +922,156 @@ def account_toggle_active(request, account_id):
     messages.success(request, f'Account "{account.name}" {status}.')
 
     return redirect('finance:account_list')
+
+
+# =============================================================================
+# Category Management Views (Phase 9)
+# =============================================================================
+
+@login_required
+def category_list(request):
+    """
+    List all categories grouped by type.
+
+    GET /finance/categories/
+    """
+    expense_categories = Category.objects.filter(
+        category_type='expense'
+    ).order_by('display_order', 'name')
+
+    income_categories = Category.objects.filter(
+        category_type='income'
+    ).order_by('display_order', 'name')
+
+    return render(request, 'finance/category_list.html', {
+        'expense_categories': expense_categories,
+        'income_categories': income_categories,
+    })
+
+
+@login_required
+def category_create(request):
+    """
+    Create a new category.
+
+    GET/POST /finance/categories/new/
+    """
+    if request.method == 'POST':
+        form = CategoryForm(request.POST)
+        if form.is_valid():
+            category = form.save()
+            messages.success(request, f'Category "{category.name}" created successfully.')
+            return redirect('finance:category_list')
+    else:
+        # Pre-select category type from query param
+        initial = {}
+        category_type = request.GET.get('type')
+        if category_type in ('expense', 'income'):
+            initial['category_type'] = category_type
+        form = CategoryForm(initial=initial)
+
+    return render(request, 'finance/category_form.html', {
+        'form': form,
+        'title': 'New Category',
+    })
+
+
+@login_required
+def category_edit(request, category_id):
+    """
+    Edit an existing category.
+
+    GET/POST /finance/categories/<id>/edit/
+    """
+    category = get_object_or_404(Category, pk=category_id)
+
+    if request.method == 'POST':
+        form = CategoryForm(request.POST, instance=category)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Category "{category.name}" updated successfully.')
+            return redirect('finance:category_list')
+    else:
+        form = CategoryForm(instance=category)
+
+    return render(request, 'finance/category_form.html', {
+        'form': form,
+        'category': category,
+        'title': 'Edit Category',
+    })
+
+
+@login_required
+def category_detail(request, category_id):
+    """
+    View category details with transaction count.
+
+    GET /finance/categories/<id>/
+    """
+    category = get_object_or_404(Category, pk=category_id)
+
+    # Get recent transactions for this category
+    transactions = Transaction.objects.filter(
+        category=category
+    ).select_related('account').order_by('-transaction_date', '-created_at')[:10]
+
+    transaction_count = Transaction.objects.filter(category=category).count()
+
+    return render(request, 'finance/category_detail.html', {
+        'category': category,
+        'transactions': transactions,
+        'transaction_count': transaction_count,
+    })
+
+
+@login_required
+@require_POST
+def category_delete(request, category_id):
+    """
+    Delete a category.
+
+    POST /finance/categories/<id>/delete/
+
+    System categories cannot be deleted.
+    Categories with transactions cannot be deleted.
+    """
+    category = get_object_or_404(Category, pk=category_id)
+
+    # Check if system category
+    if category.is_system:
+        messages.error(request, 'System categories cannot be deleted.')
+        return redirect('finance:category_list')
+
+    # Check if category has transactions
+    transaction_count = Transaction.objects.filter(category=category).count()
+    if transaction_count > 0:
+        messages.error(
+            request,
+            f'Cannot delete category "{category.name}". '
+            f'It has {transaction_count} transaction(s) associated with it.'
+        )
+        return redirect('finance:category_list')
+
+    category_name = category.name
+    category.delete()
+    messages.success(request, f'Category "{category_name}" deleted successfully.')
+
+    return redirect('finance:category_list')
+
+
+@login_required
+@require_POST
+def category_toggle_active(request, category_id):
+    """
+    Toggle category active status.
+
+    POST /finance/categories/<id>/toggle-active/
+    """
+    category = get_object_or_404(Category, pk=category_id)
+    category.is_active = not category.is_active
+    category.save()
+
+    status = 'activated' if category.is_active else 'deactivated'
+    messages.success(request, f'Category "{category.name}" {status}.')
+
+    return redirect('finance:category_list')

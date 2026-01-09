@@ -286,3 +286,74 @@ class AccountForm(forms.ModelForm):
         if balance is not None and balance < 0:
             raise ValidationError('Opening balance cannot be negative.')
         return balance
+
+
+class CategoryForm(forms.ModelForm):
+    """Form for creating and editing categories."""
+
+    class Meta:
+        model = Category
+        fields = [
+            'name',
+            'category_type',
+            'description',
+            'is_active',
+            'display_order',
+        ]
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+            'display_order': forms.NumberInput(attrs={'min': '0'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Add CSS classes for styling
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                continue  # Don't add form-control to checkboxes
+            field.widget.attrs.setdefault('class', 'form-control')
+
+        # If editing a system category, prevent changing the type
+        if self.instance.pk and self.instance.is_system:
+            self.fields['category_type'].widget.attrs['disabled'] = True
+            self.fields['category_type'].help_text = 'System categories cannot change type.'
+
+    def clean_name(self):
+        """Validate category name is unique within type."""
+        name = self.cleaned_data.get('name')
+        # Note: category_type validation happens in clean() after all field cleaners
+        return name
+
+    def _validate_unique_name(self, name, category_type):
+        """Check that name is unique within category type."""
+        if name and category_type:
+            qs = Category.objects.filter(name__iexact=name, category_type=category_type)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error(
+                    'name',
+                    f'A {category_type} category with this name already exists.'
+                )
+
+    def clean_display_order(self):
+        """Validate display order is non-negative."""
+        display_order = self.cleaned_data.get('display_order')
+        if display_order is not None and display_order < 0:
+            raise ValidationError('Display order cannot be negative.')
+        return display_order
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        # For system categories being edited, preserve the original category_type
+        if self.instance.pk and self.instance.is_system:
+            cleaned_data['category_type'] = self.instance.category_type
+
+        # Validate unique name within category type
+        name = cleaned_data.get('name')
+        category_type = cleaned_data.get('category_type')
+        self._validate_unique_name(name, category_type)
+
+        return cleaned_data
