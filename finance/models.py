@@ -1,9 +1,79 @@
 import uuid
 from decimal import Decimal
 from django.db import models
+from django.db.models import Sum, Case, When, F, Value, DecimalField as DjangoDecimalField
+from django.db.models.functions import Coalesce
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
+
+
+class AccountManager(models.Manager):
+    """Custom manager for Account model with optimized balance calculations."""
+
+    def with_balances(self):
+        """
+        Return accounts annotated with calculated balances.
+        This avoids N+1 queries by calculating all balances in a single query.
+        """
+        from finance.models import Transaction
+
+        # Subquery for income
+        income_subquery = Transaction.objects.filter(
+            account=models.OuterRef('pk'),
+            transaction_type='income'
+        ).values('account').annotate(
+            total=Sum('amount')
+        ).values('total')
+
+        # Subquery for expenses
+        expense_subquery = Transaction.objects.filter(
+            account=models.OuterRef('pk'),
+            transaction_type='expense'
+        ).values('account').annotate(
+            total=Sum('amount')
+        ).values('total')
+
+        # Subquery for owner's draws
+        draws_subquery = Transaction.objects.filter(
+            account=models.OuterRef('pk'),
+            transaction_type='owners_draw'
+        ).values('account').annotate(
+            total=Sum('amount')
+        ).values('total')
+
+        # Subquery for transfers out
+        transfers_out_subquery = Transaction.objects.filter(
+            account=models.OuterRef('pk'),
+            transaction_type='transfer'
+        ).values('account').annotate(
+            total=Sum('amount')
+        ).values('total')
+
+        # Subquery for transfers in
+        transfers_in_subquery = Transaction.objects.filter(
+            transfer_to_account=models.OuterRef('pk')
+        ).values('transfer_to_account').annotate(
+            total=Sum('amount')
+        ).values('total')
+
+        return self.annotate(
+            _income=Coalesce(models.Subquery(income_subquery), Value(Decimal('0.00'))),
+            _expenses=Coalesce(models.Subquery(expense_subquery), Value(Decimal('0.00'))),
+            _draws=Coalesce(models.Subquery(draws_subquery), Value(Decimal('0.00'))),
+            _transfers_out=Coalesce(models.Subquery(transfers_out_subquery), Value(Decimal('0.00'))),
+            _transfers_in=Coalesce(models.Subquery(transfers_in_subquery), Value(Decimal('0.00'))),
+            calculated_balance=Case(
+                # For checking/savings: opening + income - expenses - draws - transfers_out + transfers_in
+                When(
+                    account_type__in=['checking', 'savings'],
+                    then=F('opening_balance') + F('_income') - F('_expenses') - F('_draws') - F('_transfers_out') + F('_transfers_in')
+                ),
+                # For credit cards: opening + expenses - payments (transfers_in)
+                default=F('opening_balance') + F('_expenses') - F('_transfers_in'),
+                output_field=DjangoDecimalField(max_digits=12, decimal_places=2)
+            )
+        )
 
 
 class Account(models.Model):
@@ -42,6 +112,8 @@ class Account(models.Model):
         blank=True,
         related_name='created_accounts'
     )
+
+    objects = AccountManager()
 
     class Meta:
         ordering = ['name']
@@ -430,19 +502,22 @@ class AuditLog(models.Model):
         null=True,
         related_name='audit_logs'
     )
-    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
-    model_name = models.CharField(max_length=100)
-    object_id = models.UUIDField()
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES, db_index=True)
+    model_name = models.CharField(max_length=100, db_index=True)
+    object_id = models.UUIDField(db_index=True)
     object_repr = models.CharField(max_length=500)
     changes = models.JSONField(default=dict, help_text='Before/after values')
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=500, blank=True, default='')
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
         verbose_name = 'Audit Log'
         verbose_name_plural = 'Audit Logs'
+        indexes = [
+            models.Index(fields=['-created_at', 'action', 'model_name'], name='audit_log_filter_idx'),
+        ]
 
     def __str__(self):
         return f'{self.action} {self.model_name} by {self.user} at {self.created_at}'

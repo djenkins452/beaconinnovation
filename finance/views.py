@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Case, When, Value
 from django.http import JsonResponse, FileResponse, Http404
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
@@ -160,13 +160,13 @@ def dashboard(request):
     """
     today = date.today()
 
-    # Account balances
-    accounts = Account.objects.filter(is_active=True)
+    # Account balances - use optimized query to avoid N+1
+    accounts = Account.objects.with_balances().filter(is_active=True)
     total_checking = sum(
-        a.current_balance for a in accounts if a.account_type in ('checking', 'savings')
+        (a.calculated_balance or Decimal('0.00')) for a in accounts if a.account_type in ('checking', 'savings')
     )
     total_credit = sum(
-        a.current_balance for a in accounts if a.account_type == 'credit_card'
+        (a.calculated_balance or Decimal('0.00')) for a in accounts if a.account_type == 'credit_card'
     )
     net_position = total_checking - total_credit
 
@@ -347,14 +347,15 @@ def dashboard_data_api(request):
         spending = _get_spending_by_category(start_date, end_date)
         return JsonResponse({
             'labels': [s['category__name'] for s in spending],
-            'data': [float(s['total']) for s in spending],
+            # Use string for exact precision, Chart.js will parse numeric strings
+            'data': [str(s['total']) for s in spending],
         })
 
     elif chart_type == 'income_vs_expense':
         summary = _calculate_period_summary(start_date, end_date)
         return JsonResponse({
             'labels': ['Income', 'Expenses'],
-            'data': [float(summary['income']), float(summary['expenses'])],
+            'data': [str(summary['income']), str(summary['expenses'])],
         })
 
     elif chart_type == 'monthly_trend':
@@ -375,8 +376,8 @@ def dashboard_data_api(request):
 
             summary = _calculate_period_summary(month_start, month_end)
             months.append(month_start.strftime('%b %Y'))
-            income_data.append(float(summary['income']))
-            expense_data.append(float(summary['expenses']))
+            income_data.append(str(summary['income']))
+            expense_data.append(str(summary['expenses']))
 
         return JsonResponse({
             'labels': months,
@@ -1170,17 +1171,18 @@ def account_list(request):
 
     GET /finance/accounts/
     """
-    accounts = Account.objects.all()
+    # Use optimized query to avoid N+1
+    accounts = Account.objects.with_balances().all()
 
-    # Calculate totals
+    # Calculate totals using pre-calculated balances
     total_checking = sum(
-        a.current_balance for a in accounts if a.account_type == 'checking' and a.is_active
+        (a.calculated_balance or Decimal('0.00')) for a in accounts if a.account_type == 'checking' and a.is_active
     )
     total_credit = sum(
-        a.current_balance for a in accounts if a.account_type == 'credit_card' and a.is_active
+        (a.calculated_balance or Decimal('0.00')) for a in accounts if a.account_type == 'credit_card' and a.is_active
     )
     total_savings = sum(
-        a.current_balance for a in accounts if a.account_type == 'savings' and a.is_active
+        (a.calculated_balance or Decimal('0.00')) for a in accounts if a.account_type == 'savings' and a.is_active
     )
 
     return render(request, 'finance/account_list.html', {
@@ -1462,17 +1464,27 @@ def recurring_list(request):
     active_recurring = recurring.filter(is_active=True)
     inactive_recurring = recurring.filter(is_active=False)
 
-    # Calculate stats
+    # Calculate stats using database aggregation for efficiency
     active_count = active_recurring.count()
-    total_monthly = sum(
-        r.amount for r in active_recurring if r.frequency == 'monthly'
+
+    # Use database aggregation instead of Python iteration
+    totals = active_recurring.aggregate(
+        total_monthly=Sum(Case(
+            When(frequency='monthly', then='amount'),
+            default=Value(Decimal('0.00'))
+        )),
+        total_quarterly=Sum(Case(
+            When(frequency='quarterly', then='amount'),
+            default=Value(Decimal('0.00'))
+        )),
+        total_annually=Sum(Case(
+            When(frequency='annually', then='amount'),
+            default=Value(Decimal('0.00'))
+        )),
     )
-    total_quarterly = sum(
-        r.amount for r in active_recurring if r.frequency == 'quarterly'
-    )
-    total_annually = sum(
-        r.amount for r in active_recurring if r.frequency == 'annually'
-    )
+    total_monthly = totals['total_monthly'] or Decimal('0.00')
+    total_quarterly = totals['total_quarterly'] or Decimal('0.00')
+    total_annually = totals['total_annually'] or Decimal('0.00')
 
     # Calculate estimated monthly expense
     estimated_monthly = (
@@ -1481,9 +1493,15 @@ def recurring_list(request):
         (total_annually / Decimal('12'))
     )
 
+    # Paginate active recurring (most likely to have many records)
+    paginator = Paginator(active_recurring, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
     return render(request, 'finance/recurring_list.html', {
-        'active_recurring': active_recurring,
-        'inactive_recurring': inactive_recurring,
+        'active_recurring': page_obj,
+        'inactive_recurring': inactive_recurring[:10],  # Limit inactive to 10
+        'page_obj': page_obj,
         'active_count': active_count,
         'total_monthly': total_monthly,
         'total_quarterly': total_quarterly,

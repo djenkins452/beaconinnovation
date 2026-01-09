@@ -577,12 +577,51 @@ def validate_csv_file(file) -> dict:
         if len(rows) < 2:  # Header + at least 1 data row
             return {'valid': False, 'error': 'File must have at least one data row'}
 
+        # Validate headers - check for required columns
+        header_row = rows[0] if rows else []
+        normalized_headers = [h.strip().lower() for h in header_row]
+
+        # Check for required columns (Date and Amount are essential)
+        required_columns = ['date', 'amount']
+        missing_columns = []
+        for col in required_columns:
+            if col not in normalized_headers:
+                missing_columns.append(col.title())
+
+        if missing_columns:
+            return {
+                'valid': False,
+                'error': f'Missing required column(s): {", ".join(missing_columns)}. '
+                         f'Expected Amex CSV format with Date, Amount columns.'
+            }
+
+        # Check for description column (either Description or Appears On Your Statement As)
+        has_description = (
+            'description' in normalized_headers or
+            'appears on your statement as' in normalized_headers
+        )
+        if not has_description:
+            return {
+                'valid': False,
+                'error': 'Missing description column. Expected "Description" or '
+                         '"Appears On Your Statement As" column.'
+            }
+
+        # Validate maximum row count to prevent memory issues
+        max_rows = 10000
+        if len(rows) > max_rows:
+            return {
+                'valid': False,
+                'error': f'File has too many rows ({len(rows)}). Maximum allowed is {max_rows}.'
+            }
+
         return {
             'valid': True,
             'error': None,
             'row_count': len(rows) - 1,  # Exclude header
             'filename': file.name,
             'size': file.size,
+            'headers': header_row,
         }
 
     except UnicodeDecodeError:

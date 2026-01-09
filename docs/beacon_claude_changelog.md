@@ -6,6 +6,27 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Code Review & Performance Improvements
+- Conducted comprehensive code review and implemented performance fixes
+- Files created:
+  - `finance/migrations/0004_add_auditlog_indexes.py` - Database indexes for AuditLog
+- Files modified:
+  - `finance/models.py` - Added AccountManager with optimized balance queries, AuditLog indexes
+  - `finance/views.py` - Updated dashboard/account_list to use optimized queries, improved recurring_list aggregation
+  - `finance/importers.py` - Enhanced CSV validation with header checks and row limits
+  - `finance/tests/test_dashboard.py` - Updated tests for string-based JSON responses
+- Performance Improvements:
+  - **N+1 Query Fix:** Added `AccountManager.with_balances()` method that calculates all account balances in a single query using subqueries and annotations
+  - **Database Indexes:** Added indexes to AuditLog on `action`, `model_name`, `object_id`, `created_at` fields plus composite index
+  - **Recurring List Optimization:** Replaced Python iteration with database aggregation using `Case/When` for totals calculation
+  - **JSON Precision:** Changed chart API to return Decimal values as strings to preserve precision
+- Validation Improvements:
+  - CSV import now validates required headers (Date, Amount, Description)
+  - Added maximum row count limit (10,000) for CSV imports
+  - Better error messages for invalid CSV format
+- Tests: All 417 tests passing
+- Notes: Performance improvements reduce database queries significantly for dashboards with many accounts.
+
 ### Phase 14: Export Functionality
 - Added CSV export for transactions and reports
 - Files created:

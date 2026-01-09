@@ -446,7 +446,9 @@ class DashboardDataAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['labels'], ['Income', 'Expenses'])
-        self.assertEqual(data['data'], [500.0, 200.0])
+        # Data is returned as strings for precision - verify values are correct
+        self.assertEqual(Decimal(data['data'][0]), Decimal('500'))
+        self.assertEqual(Decimal(data['data'][1]), Decimal('200'))
 
     def test_api_monthly_trend(self):
         """Test monthly trend chart data."""
