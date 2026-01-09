@@ -368,10 +368,11 @@ class RecurringTransaction(models.Model):
 
     def clean(self):
         super().clean()
-        if self.day_of_month < 1 or self.day_of_month > 31:
-            raise ValidationError({
-                'day_of_month': 'Day of month must be between 1 and 31.'
-            })
+        if self.day_of_month is not None:
+            if self.day_of_month < 1 or self.day_of_month > 31:
+                raise ValidationError({
+                    'day_of_month': 'Day of month must be between 1 and 31.'
+                })
 
 
 class TaxAlert(models.Model):

@@ -54,6 +54,15 @@ urlpatterns = [
     path('categories/<uuid:category_id>/delete/', views.category_delete, name='category_delete'),
     path('categories/<uuid:category_id>/toggle-active/', views.category_toggle_active, name='category_toggle_active'),
 
+    # Recurring Transactions (Phase 11)
+    path('recurring/', views.recurring_list, name='recurring_list'),
+    path('recurring/new/', views.recurring_create, name='recurring_create'),
+    path('recurring/<uuid:recurring_id>/', views.recurring_detail, name='recurring_detail'),
+    path('recurring/<uuid:recurring_id>/edit/', views.recurring_edit, name='recurring_edit'),
+    path('recurring/<uuid:recurring_id>/delete/', views.recurring_delete, name='recurring_delete'),
+    path('recurring/<uuid:recurring_id>/toggle-active/', views.recurring_toggle_active, name='recurring_toggle_active'),
+    path('recurring/<uuid:recurring_id>/generate/', views.recurring_generate, name='recurring_generate'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

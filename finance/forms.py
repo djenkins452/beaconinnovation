@@ -7,7 +7,7 @@ from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-from .models import Receipt, Transaction, Account, Category
+from .models import Receipt, Transaction, Account, Category, RecurringTransaction
 
 
 class ReceiptUploadForm(forms.ModelForm):
@@ -357,3 +357,108 @@ class CategoryForm(forms.ModelForm):
         self._validate_unique_name(name, category_type)
 
         return cleaned_data
+
+
+class RecurringTransactionForm(forms.ModelForm):
+    """Form for creating and editing recurring transactions."""
+
+    class Meta:
+        model = RecurringTransaction
+        fields = [
+            'account',
+            'category',
+            'amount',
+            'description',
+            'vendor',
+            'frequency',
+            'day_of_month',
+            'start_date',
+            'end_date',
+            'is_active',
+        ]
+        widgets = {
+            'start_date': forms.DateInput(
+                attrs={'type': 'date'},
+                format='%Y-%m-%d'
+            ),
+            'end_date': forms.DateInput(
+                attrs={'type': 'date'},
+                format='%Y-%m-%d'
+            ),
+            'amount': forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
+            'day_of_month': forms.NumberInput(attrs={'min': '1', 'max': '31'}),
+            'description': forms.TextInput(attrs={'placeholder': 'e.g., Monthly GitHub subscription'}),
+            'vendor': forms.TextInput(attrs={'placeholder': 'e.g., GitHub'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Set default start date to today for new records
+        if not self.instance.pk:
+            self.initial['start_date'] = date.today()
+            self.initial['is_active'] = True
+
+        # Filter accounts to active only
+        self.fields['account'].queryset = Account.objects.filter(is_active=True)
+
+        # Filter categories to active expense categories only (recurring are typically expenses)
+        self.fields['category'].queryset = Category.objects.filter(
+            is_active=True,
+            category_type='expense'
+        ).order_by('display_order', 'name')
+
+        # Add CSS classes for styling
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                continue  # Don't add form-control to checkboxes
+            field.widget.attrs.setdefault('class', 'form-control')
+
+    def clean_day_of_month(self):
+        """Validate day of month is between 1 and 31."""
+        day = self.cleaned_data.get('day_of_month')
+        if day is not None:
+            if day < 1 or day > 31:
+                raise ValidationError('Day of month must be between 1 and 31.')
+        return day
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get('start_date')
+        end_date = cleaned_data.get('end_date')
+
+        # End date must be after start date if provided
+        if start_date and end_date:
+            if end_date < start_date:
+                self.add_error('end_date', 'End date must be after start date.')
+
+        return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        # Calculate next_due based on start_date and day_of_month
+        if not instance.next_due:
+            start = instance.start_date
+            day = instance.day_of_month
+
+            # If day_of_month is past in start month, move to next month
+            if start.day > day:
+                # Move to next month
+                if start.month == 12:
+                    next_month = start.replace(year=start.year + 1, month=1, day=1)
+                else:
+                    next_month = start.replace(month=start.month + 1, day=1)
+                # Handle months with fewer days
+                import calendar
+                max_day = calendar.monthrange(next_month.year, next_month.month)[1]
+                instance.next_due = next_month.replace(day=min(day, max_day))
+            else:
+                # Same month
+                import calendar
+                max_day = calendar.monthrange(start.year, start.month)[1]
+                instance.next_due = start.replace(day=min(day, max_day))
+
+        if commit:
+            instance.save()
+        return instance

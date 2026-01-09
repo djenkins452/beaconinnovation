@@ -15,8 +15,8 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
-from .models import Receipt, Transaction, Category, Account, CSVImport, TaxAlert
-from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm, CategoryForm
+from .models import Receipt, Transaction, Category, Account, CSVImport, TaxAlert, RecurringTransaction
+from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm, CategoryForm, RecurringTransactionForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
 from .importers import AmexCSVParser, CSVImporter, validate_csv_file
 
@@ -1441,3 +1441,242 @@ def category_toggle_active(request, category_id):
     messages.success(request, f'Category "{category.name}" {status}.')
 
     return redirect('finance:category_list')
+
+
+# =============================================================================
+# Recurring Transaction Views (Phase 11)
+# =============================================================================
+
+@login_required
+def recurring_list(request):
+    """
+    List all recurring transactions.
+
+    GET /finance/recurring/
+    """
+    recurring = RecurringTransaction.objects.select_related(
+        'account', 'category'
+    ).all()
+
+    # Separate active and inactive
+    active_recurring = recurring.filter(is_active=True)
+    inactive_recurring = recurring.filter(is_active=False)
+
+    # Calculate stats
+    active_count = active_recurring.count()
+    total_monthly = sum(
+        r.amount for r in active_recurring if r.frequency == 'monthly'
+    )
+    total_quarterly = sum(
+        r.amount for r in active_recurring if r.frequency == 'quarterly'
+    )
+    total_annually = sum(
+        r.amount for r in active_recurring if r.frequency == 'annually'
+    )
+
+    # Calculate estimated monthly expense
+    estimated_monthly = (
+        total_monthly +
+        (total_quarterly / Decimal('3')) +
+        (total_annually / Decimal('12'))
+    )
+
+    return render(request, 'finance/recurring_list.html', {
+        'active_recurring': active_recurring,
+        'inactive_recurring': inactive_recurring,
+        'active_count': active_count,
+        'total_monthly': total_monthly,
+        'total_quarterly': total_quarterly,
+        'total_annually': total_annually,
+        'estimated_monthly': estimated_monthly,
+    })
+
+
+@login_required
+def recurring_create(request):
+    """
+    Create a new recurring transaction template.
+
+    GET/POST /finance/recurring/new/
+    """
+    if request.method == 'POST':
+        form = RecurringTransactionForm(request.POST)
+        if form.is_valid():
+            recurring = form.save(commit=False)
+            recurring.created_by = request.user
+            recurring.save()
+            messages.success(
+                request,
+                f'Recurring transaction "{recurring.vendor}" created successfully.'
+            )
+            return redirect('finance:recurring_list')
+    else:
+        form = RecurringTransactionForm()
+
+    return render(request, 'finance/recurring_form.html', {
+        'form': form,
+        'title': 'New Recurring Transaction',
+    })
+
+
+@login_required
+def recurring_edit(request, recurring_id):
+    """
+    Edit an existing recurring transaction template.
+
+    GET/POST /finance/recurring/<id>/edit/
+    """
+    recurring = get_object_or_404(RecurringTransaction, pk=recurring_id)
+
+    if request.method == 'POST':
+        form = RecurringTransactionForm(request.POST, instance=recurring)
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request,
+                f'Recurring transaction "{recurring.vendor}" updated successfully.'
+            )
+            return redirect('finance:recurring_list')
+    else:
+        form = RecurringTransactionForm(instance=recurring)
+
+    return render(request, 'finance/recurring_form.html', {
+        'form': form,
+        'recurring': recurring,
+        'title': 'Edit Recurring Transaction',
+    })
+
+
+@login_required
+def recurring_detail(request, recurring_id):
+    """
+    View recurring transaction details.
+
+    GET /finance/recurring/<id>/
+    """
+    recurring = get_object_or_404(
+        RecurringTransaction.objects.select_related('account', 'category'),
+        pk=recurring_id
+    )
+
+    # Get generated transactions
+    generated_transactions = Transaction.objects.filter(
+        recurring_source=recurring
+    ).select_related('account', 'category').order_by('-transaction_date')[:20]
+
+    generated_count = Transaction.objects.filter(recurring_source=recurring).count()
+
+    return render(request, 'finance/recurring_detail.html', {
+        'recurring': recurring,
+        'generated_transactions': generated_transactions,
+        'generated_count': generated_count,
+    })
+
+
+@login_required
+@require_POST
+def recurring_toggle_active(request, recurring_id):
+    """
+    Toggle recurring transaction active status.
+
+    POST /finance/recurring/<id>/toggle-active/
+    """
+    recurring = get_object_or_404(RecurringTransaction, pk=recurring_id)
+    recurring.is_active = not recurring.is_active
+    recurring.save()
+
+    status = 'activated' if recurring.is_active else 'deactivated'
+    messages.success(request, f'Recurring transaction "{recurring.vendor}" {status}.')
+
+    return redirect('finance:recurring_list')
+
+
+@login_required
+@require_POST
+def recurring_delete(request, recurring_id):
+    """
+    Delete a recurring transaction template.
+
+    POST /finance/recurring/<id>/delete/
+
+    Note: This does not delete generated transactions.
+    """
+    recurring = get_object_or_404(RecurringTransaction, pk=recurring_id)
+    vendor = recurring.vendor
+    recurring.delete()
+    messages.success(request, f'Recurring transaction "{vendor}" deleted successfully.')
+
+    return redirect('finance:recurring_list')
+
+
+@login_required
+@require_POST
+def recurring_generate(request, recurring_id):
+    """
+    Manually generate a transaction from recurring template.
+
+    POST /finance/recurring/<id>/generate/
+
+    Creates a transaction immediately, regardless of next_due date.
+    """
+    recurring = get_object_or_404(RecurringTransaction, pk=recurring_id)
+
+    if not recurring.is_active:
+        messages.error(request, 'Cannot generate transaction from inactive recurring template.')
+        return redirect('finance:recurring_detail', recurring_id=recurring_id)
+
+    # Create the transaction
+    transaction = Transaction.objects.create(
+        account=recurring.account,
+        transaction_type='expense',
+        category=recurring.category,
+        amount=recurring.amount,
+        transaction_date=date.today(),
+        description=recurring.description,
+        vendor=recurring.vendor,
+        is_recurring=True,
+        recurring_source=recurring,
+        created_by=request.user,
+    )
+
+    # Update last_generated
+    recurring.last_generated = date.today()
+
+    # Calculate next_due based on frequency
+    import calendar
+    today = date.today()
+
+    if recurring.frequency == 'monthly':
+        # Next month, same day
+        if today.month == 12:
+            next_date = today.replace(year=today.year + 1, month=1, day=1)
+        else:
+            next_date = today.replace(month=today.month + 1, day=1)
+        max_day = calendar.monthrange(next_date.year, next_date.month)[1]
+        recurring.next_due = next_date.replace(day=min(recurring.day_of_month, max_day))
+
+    elif recurring.frequency == 'quarterly':
+        # 3 months from now
+        month = today.month + 3
+        year = today.year
+        if month > 12:
+            month -= 12
+            year += 1
+        next_date = date(year, month, 1)
+        max_day = calendar.monthrange(next_date.year, next_date.month)[1]
+        recurring.next_due = next_date.replace(day=min(recurring.day_of_month, max_day))
+
+    elif recurring.frequency == 'annually':
+        # Next year, same month and day
+        next_date = date(today.year + 1, today.month, 1)
+        max_day = calendar.monthrange(next_date.year, next_date.month)[1]
+        recurring.next_due = next_date.replace(day=min(recurring.day_of_month, max_day))
+
+    recurring.save()
+
+    messages.success(
+        request,
+        f'Transaction generated: {transaction.description} - ${transaction.amount}'
+    )
+
+    return redirect('finance:recurring_detail', recurring_id=recurring_id)

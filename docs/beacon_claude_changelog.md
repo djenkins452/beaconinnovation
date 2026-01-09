@@ -6,6 +6,40 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 11: Recurring Transactions UI
+- Implemented recurring transaction CRUD and manual generation
+- Files created:
+  - `finance/templates/finance/recurring_list.html` - List view with active/inactive sections, stats
+  - `finance/templates/finance/recurring_form.html` - Create/edit form
+  - `finance/templates/finance/recurring_detail.html` - Detail view with generated transactions
+  - `finance/tests/test_recurring_views.py` - 35 tests for recurring UI functionality
+- Files modified:
+  - `finance/forms.py` - Added RecurringTransactionForm with validation
+  - `finance/views.py` - Added recurring CRUD views, toggle active, manual generate
+  - `finance/urls.py` - Added recurring transaction routes
+  - `finance/models.py` - Fixed clean() method for day_of_month None check
+- Views:
+  - `recurring_list` - List with active/inactive sections, monthly totals, estimated monthly cost
+  - `recurring_create` - Create new recurring transaction template
+  - `recurring_edit` - Edit existing recurring transaction
+  - `recurring_detail` - View with details and generated transactions history
+  - `recurring_toggle_active` - Activate/deactivate recurring template
+  - `recurring_delete` - Delete recurring template (preserves generated transactions)
+  - `recurring_generate` - Manually generate transaction from template
+- Form Features:
+  - Filters accounts to active only
+  - Filters categories to active expense categories only
+  - Validates day_of_month (1-31)
+  - Validates end_date > start_date
+  - Auto-calculates next_due on save
+- UI Features:
+  - Stats cards: active count, monthly total, estimated monthly cost
+  - Separate active/inactive tables
+  - Frequency badges with color coding
+  - Generated transactions list in detail view
+- Tests: 35 new tests (362 total now passing)
+- Notes: Phase 11 complete.
+
 ### Phase 10: Dashboard & Reporting
 - Implemented financial dashboard with metrics and Chart.js visualizations
 - Files created:
