@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'website',
     'wlj',
     'admin_console',
+    'finance',
     'whitenoise.runserver_nostatic',
 ]
 
