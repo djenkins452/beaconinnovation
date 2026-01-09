@@ -26,7 +26,7 @@ This file tracks all changes made by Claude Code during development.
   - `GET /finance/export/transactions/` - Export transactions CSV
   - `GET /finance/export/spending/` - Export spending report CSV
   - `GET /finance/export/income-statement/` - Export income statement CSV
-- Tests: 22 new tests (417 total now passing)
+- Tests: 22 new tests (453 total now passing)
 - Notes: Phase 14 export functionality complete.
 
 ### Phase 14: Navigation and Polish
