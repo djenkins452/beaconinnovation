@@ -6,6 +6,32 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 9: Category Management
+- Implemented category CRUD with protection for system categories
+- Files created:
+  - `finance/templates/finance/category_list.html` - Split view for expense/income categories
+  - `finance/templates/finance/category_form.html` - Create/edit form with system category warning
+  - `finance/templates/finance/category_detail.html` - Detail view with transaction count
+  - `finance/tests/test_categories.py` - 35 tests for category functionality
+- Files modified:
+  - `finance/forms.py` - Added CategoryForm with unique name validation per type
+  - `finance/views.py` - Added category CRUD views
+  - `finance/urls.py` - Added category routes
+- Views:
+  - `category_list` - Split view with expense and income categories
+  - `category_create` - Create new categories with type preselection
+  - `category_edit` - Edit categories (system categories limited)
+  - `category_detail` - View with transaction count and recent transactions
+  - `category_delete` - Delete with protection for system and used categories
+  - `category_toggle_active` - Activate/deactivate categories
+- Protections:
+  - System categories cannot be deleted (raises ValidationError)
+  - Categories with transactions cannot be deleted
+  - System categories cannot change type (disabled field)
+  - Duplicate name check is case-insensitive within same type
+- Tests: 35 new tests (295 total now passing)
+- Notes: Phase 9 complete.
+
 ### Phase 8: Account Management
 - Implemented account CRUD with balance tracking
 - Files created:
