@@ -49,6 +49,16 @@ python manage.py migrate
 
 ---
 
+## Worktree Setup
+
+When working in a git worktree, activate the venv from the main repo:
+
+```bash
+source /Users/dannyjenkins/Projects/beaconinnovation/venv/bin/activate
+```
+
+---
+
 ## Tech Stack
 
 - Django 5.x | PostgreSQL (prod) / SQLite (dev)
