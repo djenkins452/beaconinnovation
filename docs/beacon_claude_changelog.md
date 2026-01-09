@@ -6,6 +6,36 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 10: Dashboard & Reporting
+- Implemented financial dashboard with metrics and Chart.js visualizations
+- Files created:
+  - `finance/templates/finance/dashboard.html` - Main dashboard with account balances, MTD/QTD summaries
+  - `finance/templates/finance/reports/spending.html` - Spending report with category breakdown
+  - `finance/templates/finance/reports/income_statement.html` - P&L report with retained earnings
+  - `finance/tests/test_dashboard.py` - 32 tests for dashboard and reports
+- Files modified:
+  - `finance/views.py` - Added dashboard, spending_report, income_statement, dashboard_data_api views
+  - `finance/urls.py` - Added dashboard and report routes
+- Views:
+  - `dashboard` - Main dashboard with account balances, MTD/QTD summaries, tax alerts, recent transactions
+  - `spending_report` - Category spending breakdown with percentages
+  - `income_statement` - P&L report with income, expenses, net profit, owner's draws, retained earnings
+  - `dashboard_data_api` - JSON API for chart data (spending_by_category, income_vs_expense, monthly_trend)
+- Features:
+  - Account balances: cash available, credit balance, net position
+  - Period summaries: MTD, QTD with income/expense/net profit
+  - Tax alerts display (unacknowledged alerts)
+  - Chart.js integration: doughnut, pie, bar charts
+  - Period selector: MTD, QTD, YTD, last month, last quarter, custom range
+  - Income statement with retained earnings calculation
+- Helper Functions:
+  - `_get_date_range_for_period()` - Calculate start/end dates for periods
+  - `_calculate_period_summary()` - Calculate income, expenses, net profit
+  - `_get_spending_by_category()` - Aggregate expenses by category
+  - `_get_income_by_category()` - Aggregate income by category
+- Tests: 32 new tests (327 total now passing)
+- Notes: Phase 10 complete.
+
 ### Phase 9: Category Management
 - Implemented category CRUD with protection for system categories
 - Files created:
