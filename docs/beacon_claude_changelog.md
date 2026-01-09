@@ -6,6 +6,28 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-08
 
+### Phase 3: Recurring Transactions & Tax Alerts
+- Created management commands for automated financial processing
+- Files created:
+  - `finance/management/commands/generate_recurring.py` - Generate transactions from recurring templates
+  - `finance/management/commands/calculate_tax_alerts.py` - Calculate quarterly tax alerts
+  - `finance/tests/test_recurring.py` - 11 tests for recurring generation
+  - `finance/tests/test_tax_alerts.py` - 9 tests for tax alert calculation
+- Modified: `requirements.txt` (added python-dateutil for date calculations)
+- Commands:
+  - `python manage.py generate_recurring` - Process due recurring transactions
+    - Supports `--dry-run` for preview mode
+    - Supports `--date YYYY-MM-DD` for custom processing date
+    - Handles monthly, quarterly, and annual frequencies
+    - Respects end_date and deactivates expired templates
+  - `python manage.py calculate_tax_alerts` - Calculate quarterly net profit
+    - Supports `--quarter` and `--year` for specific quarter
+    - Supports `--threshold` for custom threshold (default $1000)
+    - Supports `--all` to recalculate all quarters with data
+    - Shows estimated tax due dates when alert triggered
+- Tests: 20 new tests (85 total now passing)
+- Notes: Phase 3 complete. Commands can be scheduled via cron for automation.
+
 ### Phase 2: Core Finance Models
 - Created: `finance/` app with all financial tracking models
 - Files created:
