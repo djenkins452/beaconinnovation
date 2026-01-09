@@ -11,7 +11,7 @@ This file tracks all changes made by Claude Code during development.
 - Files created:
   - `finance/templates/finance/audit_log_list.html` - List view with filtering and pagination
   - `finance/templates/finance/audit_log_detail.html` - Detail view with field changes
-  - `finance/tests/test_audit_log_views.py` - 26 tests for audit log UI functionality
+  - `finance/tests/test_audit_views.py` - 22 tests for audit log UI and security
 - Files modified:
   - `finance/views.py` - Added audit_log_list and audit_log_detail views
   - `finance/urls.py` - Added audit log routes
@@ -32,7 +32,7 @@ This file tracks all changes made by Claude Code during development.
   - Before/after comparison for updates
   - Raw JSON data display
   - IP address and user agent tracking
-- Tests: 26 new tests (443 total now passing)
+- Tests: 22 new tests (443 total now passing)
 - Notes: Phase 13 complete.
 
 ### Phase 12: Tax Alerts UI
