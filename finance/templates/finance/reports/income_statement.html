@@ -1,0 +1,201 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Income Statement{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Income Statement (P&L)</h1>
+        <a href="{% url 'finance:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <!-- Period Selector -->
+    <div style="margin-bottom: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+        <form method="get" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <div>
+                <label style="font-size: 12px; color: #666;">Period:</label><br>
+                <select name="period" class="form-control" onchange="toggleCustomDates(this.value)" style="width: auto;">
+                    <option value="mtd" {% if period == 'mtd' %}selected{% endif %}>Month to Date</option>
+                    <option value="last_month" {% if period == 'last_month' %}selected{% endif %}>Last Month</option>
+                    <option value="qtd" {% if period == 'qtd' %}selected{% endif %}>Quarter to Date</option>
+                    <option value="last_quarter" {% if period == 'last_quarter' %}selected{% endif %}>Last Quarter</option>
+                    <option value="ytd" {% if period == 'ytd' %}selected{% endif %}>Year to Date</option>
+                    <option value="custom" {% if period == 'custom' %}selected{% endif %}>Custom Range</option>
+                </select>
+            </div>
+            <div id="custom-dates" style="display: {% if period == 'custom' %}flex{% else %}none{% endif %}; gap: 10px;">
+                <div>
+                    <label style="font-size: 12px; color: #666;">From:</label><br>
+                    <input type="date" name="start_date" value="{{ start_date|date:'Y-m-d' }}" class="form-control" style="width: auto;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; color: #666;">To:</label><br>
+                    <input type="date" name="end_date" value="{{ end_date|date:'Y-m-d' }}" class="form-control" style="width: auto;">
+                </div>
+            </div>
+            <div style="padding-top: 18px;">
+                <button type="submit" class="btn btn-primary">Update</button>
+            </div>
+        </form>
+    </div>
+
+    <div style="font-size: 14px; color: #666; margin-bottom: 20px;">
+        <strong>Beacon Innovations LLC</strong><br>
+        For the period {{ start_date|date:"M d, Y" }} - {{ end_date|date:"M d, Y" }}
+    </div>
+</div>
+
+<!-- Income Statement -->
+<div class="card">
+    <!-- Revenue Section -->
+    <h2 style="margin-bottom: 15px; color: #27ae60;">Revenue</h2>
+    <table style="width: 100%; margin-bottom: 30px;">
+        <tbody>
+            {% for item in income_by_category %}
+            <tr>
+                <td style="padding: 8px 0; padding-left: 20px;">{{ item.category__name }}</td>
+                <td style="text-align: right; width: 150px;">${{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td style="padding: 8px 0; padding-left: 20px; color: #888;">No income recorded</td>
+                <td style="text-align: right;">$0.00</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 1px solid #ddd; font-weight: bold;">
+                <td style="padding: 12px 0;">Total Revenue</td>
+                <td style="text-align: right; color: #27ae60;">${{ total_income|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Expenses Section -->
+    <h2 style="margin-bottom: 15px; color: #e74c3c;">Operating Expenses</h2>
+    <table style="width: 100%; margin-bottom: 30px;">
+        <tbody>
+            {% for item in expenses_by_category %}
+            <tr>
+                <td style="padding: 8px 0; padding-left: 20px;">{{ item.category__name }}</td>
+                <td style="text-align: right; width: 150px;">${{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td style="padding: 8px 0; padding-left: 20px; color: #888;">No expenses recorded</td>
+                <td style="text-align: right;">$0.00</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 1px solid #ddd; font-weight: bold;">
+                <td style="padding: 12px 0;">Total Operating Expenses</td>
+                <td style="text-align: right; color: #e74c3c;">${{ total_expenses|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Net Profit Section -->
+    <table style="width: 100%; margin-bottom: 30px;">
+        <tbody>
+            <tr style="border-top: 2px solid #333; font-weight: bold; font-size: 18px;">
+                <td style="padding: 15px 0;">Net Operating Profit</td>
+                <td style="text-align: right; color: {% if net_profit >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">
+                    {% if net_profit >= 0 %}{% endif %}${{ net_profit|floatformat:2 }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- Owner's Equity Section -->
+    <h2 style="margin-bottom: 15px; color: #9b59b6;">Owner's Equity</h2>
+    <table style="width: 100%;">
+        <tbody>
+            <tr>
+                <td style="padding: 8px 0; padding-left: 20px;">Owner's Draws</td>
+                <td style="text-align: right; width: 150px; color: #e74c3c;">(${{ owners_draw|floatformat:2 }})</td>
+            </tr>
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 2px solid #333; font-weight: bold; font-size: 18px;">
+                <td style="padding: 15px 0;">Retained Earnings</td>
+                <td style="text-align: right; color: {% if retained_earnings >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">
+                    ${{ retained_earnings|floatformat:2 }}
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<!-- Visual Summary -->
+<div class="card">
+    <h2 style="margin-bottom: 20px;">Visual Summary</h2>
+    <div style="display: flex; gap: 20px;">
+        <div style="flex: 1; height: 250px;">
+            <canvas id="incomeExpenseChart"></canvas>
+        </div>
+        <div style="flex: 1;">
+            <div style="display: flex; flex-direction: column; gap: 15px; height: 100%; justify-content: center;">
+                <div style="padding: 20px; background-color: #e8f5e9; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666;">Profit Margin</div>
+                    <div style="font-size: 32px; font-weight: bold; color: {% if total_income > 0 %}{% if net_profit >= 0 %}#27ae60{% else %}#e74c3c{% endif %}{% else %}#666{% endif %};">
+                        {% if total_income > 0 %}
+                        {{ net_profit|floatformat:0|divisibleby:total_income }}%
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </div>
+                </div>
+                <div style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666;">Expense Ratio</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #e74c3c;">
+                        {% if total_income > 0 %}
+                        {% widthratio total_expenses total_income 100 %}%
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+function toggleCustomDates(value) {
+    document.getElementById('custom-dates').style.display = value === 'custom' ? 'flex' : 'none';
+}
+
+// Income vs Expense Chart
+const ctx = document.getElementById('incomeExpenseChart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: ['Revenue', 'Expenses', 'Net Profit'],
+        datasets: [{
+            data: [{{ total_income }}, {{ total_expenses }}, {{ net_profit }}],
+            backgroundColor: ['#27ae60', '#e74c3c', '{% if net_profit >= 0 %}#3498db{% else %}#e67e22{% endif %}'],
+            borderWidth: 0
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '$' + value.toLocaleString();
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

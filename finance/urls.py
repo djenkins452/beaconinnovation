@@ -8,6 +8,11 @@ from . import views
 app_name = 'finance'
 
 urlpatterns = [
+    # Dashboard & Reports (Phase 10)
+    path('', views.dashboard, name='dashboard'),
+    path('reports/spending/', views.spending_report, name='spending_report'),
+    path('reports/income-statement/', views.income_statement, name='income_statement'),
+
     # Transaction CRUD (Phase 6)
     path('transactions/', views.transaction_list, name='transaction_list'),
     path('transactions/new/', views.transaction_create, name='transaction_create'),
@@ -53,4 +58,5 @@ urlpatterns = [
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),
     path('api/categories/', views.get_categories_by_type, name='categories_by_type'),
+    path('api/dashboard/data/', views.dashboard_data_api, name='dashboard_data'),
 ]
