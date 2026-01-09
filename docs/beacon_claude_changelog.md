@@ -6,6 +6,34 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 12: Tax Alerts UI
+- Implemented tax alert viewing and acknowledgment functionality
+- Files created:
+  - `finance/templates/finance/alert_list.html` - List view with unacknowledged/acknowledged sections
+  - `finance/templates/finance/alert_detail.html` - Detail view with quarter transactions
+  - `finance/tests/test_alert_views.py` - 33 tests for tax alert UI functionality
+- Files modified:
+  - `finance/views.py` - Added tax alert views and helper functions
+  - `finance/urls.py` - Added tax alert routes
+- Views:
+  - `alert_list` - List with unacknowledged alerts requiring attention, acknowledged history
+  - `alert_detail` - View with net profit breakdown, income/expense transactions, IRS due date
+  - `alert_acknowledge` - Mark alert as acknowledged with optional notes
+  - `alert_unacknowledge` - Revert acknowledgment status
+  - `alert_calculate` - Manual calculation for any quarter/year
+- Helper Functions:
+  - `_get_quarter_dates(quarter, year)` - Returns start/end dates for a quarter
+  - `_get_tax_due_date(quarter, year)` - Returns IRS estimated tax due date
+- UI Features:
+  - Prominent display of unacknowledged alerts requiring attention
+  - Calculate button for current quarter
+  - Form to calculate any quarter/year
+  - Income and expense transaction breakdown in detail view
+  - IRS due date display (Apr 15, Jun 15, Sep 15, Jan 15)
+  - Acknowledge with optional notes
+- Tests: 33 new tests (395 total now passing)
+- Notes: Phase 12 complete.
+
 ### Phase 11: Recurring Transactions UI
 - Implemented recurring transaction CRUD and manual generation
 - Files created:

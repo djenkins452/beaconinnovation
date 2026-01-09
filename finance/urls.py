@@ -63,6 +63,13 @@ urlpatterns = [
     path('recurring/<uuid:recurring_id>/toggle-active/', views.recurring_toggle_active, name='recurring_toggle_active'),
     path('recurring/<uuid:recurring_id>/generate/', views.recurring_generate, name='recurring_generate'),
 
+    # Tax Alerts (Phase 12)
+    path('alerts/', views.alert_list, name='alert_list'),
+    path('alerts/calculate/', views.alert_calculate, name='alert_calculate'),
+    path('alerts/<uuid:alert_id>/', views.alert_detail, name='alert_detail'),
+    path('alerts/<uuid:alert_id>/acknowledge/', views.alert_acknowledge, name='alert_acknowledge'),
+    path('alerts/<uuid:alert_id>/unacknowledge/', views.alert_unacknowledge, name='alert_unacknowledge'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

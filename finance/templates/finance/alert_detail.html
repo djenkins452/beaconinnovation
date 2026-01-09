@@ -1,0 +1,198 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Q{{ alert.quarter }} {{ alert.year }} Tax Alert{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+        <div>
+            <h1>Q{{ alert.quarter }} {{ alert.year }} Tax Alert</h1>
+            <p class="text-muted">{{ start_date|date:"M d, Y" }} - {{ end_date|date:"M d, Y" }}</p>
+        </div>
+        <div>
+            {% if alert.alert_triggered %}
+                {% if alert.acknowledged %}
+                <span class="badge" style="background-color: #27ae60; color: white; font-size: 14px; padding: 6px 12px;">Acknowledged</span>
+                {% else %}
+                <span class="badge" style="background-color: #e74c3c; color: white; font-size: 14px; padding: 6px 12px;">Requires Attention</span>
+                {% endif %}
+            {% else %}
+            <span class="badge" style="background-color: #95a5a6; color: white; font-size: 14px; padding: 6px 12px;">No Alert</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 20px; margin-bottom: 30px;">
+        <div style="flex: 1; padding: 20px; background-color: #e8f5e9; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Total Income</div>
+            <div style="font-size: 28px; font-weight: bold; color: #27ae60;">${{ total_income|floatformat:2 }}</div>
+            <div style="font-size: 12px; color: #888;">{{ income_count }} transaction{{ income_count|pluralize }}</div>
+        </div>
+        <div style="flex: 1; padding: 20px; background-color: #ffebee; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Total Expenses</div>
+            <div style="font-size: 28px; font-weight: bold; color: #e74c3c;">${{ total_expenses|floatformat:2 }}</div>
+            <div style="font-size: 12px; color: #888;">{{ expense_count }} transaction{{ expense_count|pluralize }}</div>
+        </div>
+        <div style="flex: 1; padding: 20px; background-color: {% if alert.alert_triggered %}#fff3e0{% else %}#e3f2fd{% endif %}; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Net Profit</div>
+            <div style="font-size: 28px; font-weight: bold; color: {% if alert.alert_triggered %}#f39c12{% else %}#2980b9{% endif %};">
+                ${{ alert.actual_net_profit|floatformat:2 }}
+            </div>
+            <div style="font-size: 12px; color: #888;">Threshold: ${{ alert.threshold_amount|floatformat:2 }}</div>
+        </div>
+    </div>
+
+    {% if alert.alert_triggered %}
+    <div style="background-color: {% if alert.acknowledged %}#e8f5e9{% else %}#fff3e0{% endif %}; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+        {% if alert.acknowledged %}
+        <h3 style="margin-top: 0; color: #2e7d32;">Alert Acknowledged</h3>
+        <p style="margin-bottom: 10px;">
+            Acknowledged on {{ alert.acknowledged_at|date:"M d, Y" }} at {{ alert.acknowledged_at|time:"g:i A" }}
+        </p>
+        {% if alert.notes %}
+        <p style="margin-bottom: 0;"><strong>Notes:</strong> {{ alert.notes }}</p>
+        {% endif %}
+        {% else %}
+        <h3 style="margin-top: 0; color: #e65100;">Estimated Tax Payment May Be Required</h3>
+        <p style="margin-bottom: 10px;">
+            Your net profit of <strong>${{ alert.actual_net_profit|floatformat:2 }}</strong> exceeds the
+            <strong>${{ alert.threshold_amount|floatformat:2 }}</strong> threshold.
+        </p>
+        {% if due_date %}
+        <p style="margin-bottom: 0;">
+            <strong>IRS Estimated Tax Due Date:</strong> {{ due_date|date:"F d, Y" }}
+        </p>
+        {% endif %}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div style="margin-bottom: 30px;">
+        <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">Actions</h3>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            {% if alert.alert_triggered and not alert.acknowledged %}
+            <form action="{% url 'finance:alert_acknowledge' alert.id %}" method="post" style="display: flex; gap: 10px; align-items: end;">
+                {% csrf_token %}
+                <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                    <label for="notes">Notes (optional)</label>
+                    <input type="text" name="notes" id="notes" class="form-control" placeholder="e.g., Paid $500 estimated tax">
+                </div>
+                <button type="submit" class="btn btn-success">Acknowledge Alert</button>
+            </form>
+            {% elif alert.acknowledged %}
+            <form action="{% url 'finance:alert_unacknowledge' alert.id %}" method="post" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary">Mark as Unacknowledged</button>
+            </form>
+            {% endif %}
+
+            <form action="{% url 'finance:alert_calculate' %}" method="post" style="display: inline;">
+                {% csrf_token %}
+                <input type="hidden" name="quarter" value="{{ alert.quarter }}">
+                <input type="hidden" name="year" value="{{ alert.year }}">
+                <button type="submit" class="btn btn-primary">Recalculate</button>
+            </form>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 40px;">
+        <div style="flex: 1;">
+            <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">
+                Income ({{ income_count }})
+            </h3>
+            {% if income_transactions %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th style="text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in income_transactions %}
+                    <tr>
+                        <td>{{ t.transaction_date|date:"M d" }}</td>
+                        <td>
+                            <a href="{% url 'finance:transaction_detail' t.id %}">
+                                {{ t.description|truncatechars:30 }}
+                            </a>
+                        </td>
+                        <td style="text-align: right; color: #27ae60;">${{ t.amount|floatformat:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if income_count > 10 %}
+            <p class="text-muted" style="margin-top: 10px;">Showing 10 of {{ income_count }} transactions</p>
+            {% endif %}
+            {% else %}
+            <p class="text-muted">No income transactions this quarter.</p>
+            {% endif %}
+        </div>
+
+        <div style="flex: 1;">
+            <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">
+                Expenses ({{ expense_count }})
+            </h3>
+            {% if expense_transactions %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th style="text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in expense_transactions %}
+                    <tr>
+                        <td>{{ t.transaction_date|date:"M d" }}</td>
+                        <td>
+                            <a href="{% url 'finance:transaction_detail' t.id %}">
+                                {{ t.description|truncatechars:30 }}
+                            </a>
+                        </td>
+                        <td style="text-align: right; color: #e74c3c;">${{ t.amount|floatformat:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if expense_count > 10 %}
+            <p class="text-muted" style="margin-top: 10px;">Showing 10 of {{ expense_count }} transactions</p>
+            {% endif %}
+            {% else %}
+            <p class="text-muted">No expense transactions this quarter.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div style="margin-top: 30px; padding: 20px; background-color: #f5f5f5; border-radius: 8px;">
+        <h3 style="margin-top: 0;">Alert Details</h3>
+        <table style="width: auto;">
+            <tr>
+                <td style="padding: 5px 20px 5px 0; color: #666;">Alert Triggered</td>
+                <td style="padding: 5px 0;">{{ alert.alert_triggered|yesno:"Yes,No" }}</td>
+            </tr>
+            {% if alert.alert_date %}
+            <tr>
+                <td style="padding: 5px 20px 5px 0; color: #666;">Alert Date</td>
+                <td style="padding: 5px 0;">{{ alert.alert_date|date:"M d, Y" }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td style="padding: 5px 20px 5px 0; color: #666;">Created</td>
+                <td style="padding: 5px 0;">{{ alert.created_at|date:"M d, Y" }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 5px 20px 5px 0; color: #666;">Last Updated</td>
+                <td style="padding: 5px 0;">{{ alert.updated_at|date:"M d, Y" }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <a href="{% url 'finance:alert_list' %}">&larr; Back to Tax Alerts</a>
+    </div>
+</div>
+{% endblock %}

@@ -1680,3 +1680,272 @@ def recurring_generate(request, recurring_id):
     )
 
     return redirect('finance:recurring_detail', recurring_id=recurring_id)
+
+
+# =============================================================================
+# Tax Alert Views (Phase 12)
+# =============================================================================
+
+def _get_tax_due_date(quarter, year):
+    """Get IRS estimated tax payment due date for a quarter."""
+    due_dates = {
+        1: date(year, 4, 15),
+        2: date(year, 6, 15),
+        3: date(year, 9, 15),
+        4: date(year + 1, 1, 15),
+    }
+    return due_dates.get(quarter)
+
+
+def _get_quarter_dates(quarter, year):
+    """Get start and end dates for a quarter."""
+    quarter_starts = {
+        1: date(year, 1, 1),
+        2: date(year, 4, 1),
+        3: date(year, 7, 1),
+        4: date(year, 10, 1),
+    }
+    quarter_ends = {
+        1: date(year, 3, 31),
+        2: date(year, 6, 30),
+        3: date(year, 9, 30),
+        4: date(year, 12, 31),
+    }
+    return quarter_starts[quarter], quarter_ends[quarter]
+
+
+@login_required
+def alert_list(request):
+    """
+    List all tax alerts.
+
+    GET /finance/alerts/
+    """
+    alerts = TaxAlert.objects.all()
+
+    # Separate triggered and non-triggered
+    triggered_alerts = alerts.filter(alert_triggered=True)
+    unacknowledged_alerts = triggered_alerts.filter(acknowledged=False)
+    acknowledged_alerts = triggered_alerts.filter(acknowledged=True)
+
+    # Current quarter info
+    today = date.today()
+    current_quarter = (today.month - 1) // 3 + 1
+    current_year = today.year
+
+    # Add due dates to alerts for display
+    for alert in triggered_alerts:
+        alert.due_date = _get_tax_due_date(alert.quarter, alert.year)
+
+    return render(request, 'finance/alert_list.html', {
+        'unacknowledged_alerts': unacknowledged_alerts,
+        'acknowledged_alerts': acknowledged_alerts,
+        'current_quarter': current_quarter,
+        'current_year': current_year,
+    })
+
+
+@login_required
+def alert_detail(request, alert_id):
+    """
+    View tax alert details.
+
+    GET /finance/alerts/<id>/
+    """
+    alert = get_object_or_404(TaxAlert, pk=alert_id)
+
+    # Get quarter date range
+    start_date, end_date = _get_quarter_dates(alert.quarter, alert.year)
+
+    # Get transactions for this quarter
+    income_transactions = Transaction.objects.filter(
+        transaction_type='income',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).select_related('account', 'category').order_by('-transaction_date')
+
+    expense_transactions = Transaction.objects.filter(
+        transaction_type='expense',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).select_related('account', 'category').order_by('-transaction_date')
+
+    # Calculate totals
+    total_income = sum(t.amount for t in income_transactions)
+    total_expenses = sum(t.amount for t in expense_transactions)
+
+    # Get due date
+    due_date = _get_tax_due_date(alert.quarter, alert.year)
+
+    return render(request, 'finance/alert_detail.html', {
+        'alert': alert,
+        'start_date': start_date,
+        'end_date': end_date,
+        'income_transactions': income_transactions[:10],
+        'expense_transactions': expense_transactions[:10],
+        'total_income': total_income,
+        'total_expenses': total_expenses,
+        'income_count': income_transactions.count(),
+        'expense_count': expense_transactions.count(),
+        'due_date': due_date,
+    })
+
+
+@login_required
+@require_POST
+def alert_acknowledge(request, alert_id):
+    """
+    Acknowledge a tax alert.
+
+    POST /finance/alerts/<id>/acknowledge/
+    """
+    from django.utils import timezone
+
+    alert = get_object_or_404(TaxAlert, pk=alert_id)
+
+    if not alert.alert_triggered:
+        messages.error(request, 'This alert was not triggered and cannot be acknowledged.')
+        return redirect('finance:alert_list')
+
+    alert.acknowledged = True
+    alert.acknowledged_at = timezone.now()
+
+    # Save optional notes
+    notes = request.POST.get('notes', '').strip()
+    if notes:
+        alert.notes = notes
+
+    alert.save()
+
+    messages.success(
+        request,
+        f'Tax alert for Q{alert.quarter} {alert.year} acknowledged.'
+    )
+
+    return redirect('finance:alert_list')
+
+
+@login_required
+@require_POST
+def alert_unacknowledge(request, alert_id):
+    """
+    Unacknowledge a tax alert (mark as needing attention again).
+
+    POST /finance/alerts/<id>/unacknowledge/
+    """
+    alert = get_object_or_404(TaxAlert, pk=alert_id)
+
+    alert.acknowledged = False
+    alert.acknowledged_at = None
+    alert.save()
+
+    messages.success(
+        request,
+        f'Tax alert for Q{alert.quarter} {alert.year} marked as unacknowledged.'
+    )
+
+    return redirect('finance:alert_list')
+
+
+@login_required
+@require_POST
+def alert_calculate(request):
+    """
+    Manually trigger tax alert calculation for current quarter.
+
+    POST /finance/alerts/calculate/
+
+    Query params:
+    - quarter: 1-4 (optional, defaults to current)
+    - year: YYYY (optional, defaults to current)
+    """
+    from django.utils import timezone
+    from django.conf import settings
+
+    # Get quarter and year from POST data
+    quarter = request.POST.get('quarter')
+    year = request.POST.get('year')
+
+    today = date.today()
+
+    if quarter:
+        try:
+            quarter = int(quarter)
+            if quarter < 1 or quarter > 4:
+                raise ValueError
+        except ValueError:
+            messages.error(request, 'Invalid quarter. Must be 1-4.')
+            return redirect('finance:alert_list')
+    else:
+        quarter = (today.month - 1) // 3 + 1
+
+    if year:
+        try:
+            year = int(year)
+        except ValueError:
+            messages.error(request, 'Invalid year.')
+            return redirect('finance:alert_list')
+    else:
+        year = today.year
+
+    # Get threshold from settings
+    threshold = Decimal(
+        getattr(settings, 'FINANCE_TAX_ALERT_THRESHOLD', '1000')
+    )
+
+    # Get quarter dates
+    start_date, end_date = _get_quarter_dates(quarter, year)
+
+    # Calculate totals
+    total_income = Transaction.objects.filter(
+        transaction_type='income',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+    total_expenses = Transaction.objects.filter(
+        transaction_type='expense',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+    net_profit = total_income - total_expenses
+    alert_triggered = net_profit >= threshold
+
+    # Get or create alert
+    alert, created = TaxAlert.objects.get_or_create(
+        quarter=quarter,
+        year=year,
+        defaults={
+            'threshold_amount': threshold,
+            'actual_net_profit': net_profit,
+            'alert_triggered': alert_triggered,
+            'alert_date': timezone.now() if alert_triggered else None,
+        }
+    )
+
+    if not created:
+        old_triggered = alert.alert_triggered
+        alert.threshold_amount = threshold
+        alert.actual_net_profit = net_profit
+        alert.alert_triggered = alert_triggered
+
+        if alert_triggered and not old_triggered:
+            alert.alert_date = timezone.now()
+
+        alert.save()
+
+    # Show result message
+    if alert_triggered:
+        messages.warning(
+            request,
+            f'Q{quarter} {year}: Net profit ${net_profit} exceeds threshold ${threshold}. '
+            f'Tax payment may be required!'
+        )
+    else:
+        messages.success(
+            request,
+            f'Q{quarter} {year}: Net profit ${net_profit} is below threshold ${threshold}.'
+        )
+
+    return redirect('finance:alert_detail', alert_id=alert.id)

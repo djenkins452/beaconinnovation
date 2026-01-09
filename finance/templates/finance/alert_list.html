@@ -1,0 +1,141 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Tax Alerts{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Tax Alerts</h1>
+        <form action="{% url 'finance:alert_calculate' %}" method="post" style="display: inline;">
+            {% csrf_token %}
+            <input type="hidden" name="quarter" value="{{ current_quarter }}">
+            <input type="hidden" name="year" value="{{ current_year }}">
+            <button type="submit" class="btn btn-primary">Calculate Q{{ current_quarter }} {{ current_year }}</button>
+        </form>
+    </div>
+
+    <div style="background-color: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <p style="margin: 0; color: #e65100;">
+            <strong>About Tax Alerts:</strong> When your quarterly net profit (income - expenses) exceeds $1,000,
+            you may need to make estimated tax payments to the IRS to avoid penalties.
+        </p>
+    </div>
+
+    {% if unacknowledged_alerts %}
+    <h2 style="color: #e74c3c; margin-bottom: 15px;">Requires Attention</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Quarter</th>
+                <th style="text-align: right;">Net Profit</th>
+                <th style="text-align: right;">Threshold</th>
+                <th>Tax Due Date</th>
+                <th>Alert Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in unacknowledged_alerts %}
+            <tr style="background-color: #fff5f5;">
+                <td>
+                    <a href="{% url 'finance:alert_detail' alert.id %}" style="font-weight: bold;">
+                        Q{{ alert.quarter }} {{ alert.year }}
+                    </a>
+                </td>
+                <td style="text-align: right; color: #e74c3c; font-weight: bold;">
+                    ${{ alert.actual_net_profit|floatformat:2 }}
+                </td>
+                <td style="text-align: right;">${{ alert.threshold_amount|floatformat:2 }}</td>
+                <td>
+                    {% if alert.due_date %}
+                        {{ alert.due_date|date:"M d, Y" }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>{{ alert.alert_date|date:"M d, Y" }}</td>
+                <td>
+                    <a href="{% url 'finance:alert_detail' alert.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">View</a>
+                    <form action="{% url 'finance:alert_acknowledge' alert.id %}" method="post" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success" style="padding: 3px 8px; font-size: 11px;">Acknowledge</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="background-color: #e8f5e9; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px;">
+        <p style="margin: 0; color: #2e7d32; font-size: 18px;">
+            No tax alerts requiring attention.
+        </p>
+    </div>
+    {% endif %}
+
+    {% if acknowledged_alerts %}
+    <h2 style="margin: 30px 0 15px 0;">Acknowledged Alerts</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Quarter</th>
+                <th style="text-align: right;">Net Profit</th>
+                <th style="text-align: right;">Threshold</th>
+                <th>Acknowledged</th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in acknowledged_alerts %}
+            <tr style="opacity: 0.7;">
+                <td>
+                    <a href="{% url 'finance:alert_detail' alert.id %}">
+                        Q{{ alert.quarter }} {{ alert.year }}
+                    </a>
+                </td>
+                <td style="text-align: right;">${{ alert.actual_net_profit|floatformat:2 }}</td>
+                <td style="text-align: right;">${{ alert.threshold_amount|floatformat:2 }}</td>
+                <td>{{ alert.acknowledged_at|date:"M d, Y" }}</td>
+                <td>{{ alert.notes|truncatechars:30|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'finance:alert_detail' alert.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">View</a>
+                    <form action="{% url 'finance:alert_unacknowledge' alert.id %}" method="post" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">Unacknowledge</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <div style="margin-top: 30px; padding: 20px; background-color: #f5f5f5; border-radius: 8px;">
+        <h3 style="margin-top: 0;">Calculate Other Quarters</h3>
+        <form action="{% url 'finance:alert_calculate' %}" method="post" style="display: flex; gap: 15px; align-items: end;">
+            {% csrf_token %}
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="quarter">Quarter</label>
+                <select name="quarter" id="quarter" class="form-control" style="width: auto;">
+                    <option value="1">Q1 (Jan-Mar)</option>
+                    <option value="2">Q2 (Apr-Jun)</option>
+                    <option value="3">Q3 (Jul-Sep)</option>
+                    <option value="4">Q4 (Oct-Dec)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="year">Year</label>
+                <select name="year" id="year" class="form-control" style="width: auto;">
+                    {% for y in "2024,2025,2026,2027"|make_list %}{% endfor %}
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Calculate</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
