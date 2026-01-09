@@ -74,6 +74,11 @@ urlpatterns = [
     path('audit-logs/', views.audit_log_list, name='audit_log_list'),
     path('audit-logs/<uuid:log_id>/', views.audit_log_detail, name='audit_log_detail'),
 
+    # Export (Phase 14)
+    path('export/transactions/', views.export_transactions, name='export_transactions'),
+    path('export/spending/', views.export_spending_report, name='export_spending_report'),
+    path('export/income-statement/', views.export_income_statement, name='export_income_statement'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

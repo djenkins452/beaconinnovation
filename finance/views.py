@@ -2067,3 +2067,270 @@ def audit_log_detail(request, log_id):
         'log': log,
         'field_changes': field_changes,
     })
+
+
+# =============================================================================
+# Export Views (Phase 14)
+# =============================================================================
+
+@login_required
+def export_transactions(request):
+    """
+    Export transactions to CSV.
+
+    GET /finance/export/transactions/
+
+    Query params:
+    - Same filters as transaction_list
+    """
+    import csv
+    from django.http import HttpResponse
+
+    # Get filter values (same as transaction_list)
+    account_id = request.GET.get('account', '')
+    transaction_type = request.GET.get('transaction_type', '')
+    category_id = request.GET.get('category', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    search = request.GET.get('search', '')
+
+    # Build queryset
+    transactions = Transaction.objects.select_related(
+        'account', 'category', 'transfer_to_account'
+    ).all()
+
+    if account_id:
+        transactions = transactions.filter(account_id=account_id)
+
+    if transaction_type:
+        transactions = transactions.filter(transaction_type=transaction_type)
+
+    if category_id:
+        transactions = transactions.filter(category_id=category_id)
+
+    if date_from:
+        try:
+            from_date = date.fromisoformat(date_from)
+            transactions = transactions.filter(transaction_date__gte=from_date)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            to_date = date.fromisoformat(date_to)
+            transactions = transactions.filter(transaction_date__lte=to_date)
+        except ValueError:
+            pass
+
+    if search:
+        transactions = transactions.filter(
+            Q(description__icontains=search) | Q(vendor__icontains=search)
+        )
+
+    # Create CSV response
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="transactions_{date.today().isoformat()}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Date',
+        'Type',
+        'Account',
+        'Category',
+        'Vendor',
+        'Description',
+        'Amount',
+        'Transfer To',
+        'Reference',
+        'Is Recurring',
+        'Is Reconciled',
+        'Notes',
+    ])
+
+    for t in transactions:
+        writer.writerow([
+            t.transaction_date.isoformat(),
+            t.get_transaction_type_display(),
+            t.account.name,
+            t.category.name if t.category else '',
+            t.vendor,
+            t.description,
+            str(t.amount),
+            t.transfer_to_account.name if t.transfer_to_account else '',
+            t.reference_number,
+            'Yes' if t.is_recurring else 'No',
+            'Yes' if t.is_reconciled else 'No',
+            t.notes,
+        ])
+
+    return response
+
+
+@login_required
+def export_spending_report(request):
+    """
+    Export spending report to CSV.
+
+    GET /finance/export/spending/
+
+    Query params:
+    - period: mtd, qtd, ytd, or custom
+    - start_date: YYYY-MM-DD (for custom)
+    - end_date: YYYY-MM-DD (for custom)
+    """
+    import csv
+    from django.http import HttpResponse
+
+    # Get period
+    period = request.GET.get('period', 'mtd')
+
+    if period == 'custom':
+        start_date_str = request.GET.get('start_date', '')
+        end_date_str = request.GET.get('end_date', '')
+        try:
+            start_date = date.fromisoformat(start_date_str)
+            end_date = date.fromisoformat(end_date_str)
+        except ValueError:
+            start_date, end_date = _get_date_range_for_period('mtd')
+    else:
+        start_date, end_date = _get_date_range_for_period(period)
+
+    # Get spending by category
+    from django.db.models import Sum
+
+    spending = Transaction.objects.filter(
+        transaction_type='expense',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).values(
+        'category__name'
+    ).annotate(
+        total=Sum('amount')
+    ).order_by('-total')
+
+    # Calculate total
+    total_spending = sum(item['total'] for item in spending)
+
+    # Create CSV response
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="spending_report_{start_date.isoformat()}_to_{end_date.isoformat()}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Spending Report'])
+    writer.writerow([f'Period: {start_date.isoformat()} to {end_date.isoformat()}'])
+    writer.writerow([])
+    writer.writerow(['Category', 'Amount', 'Percentage'])
+
+    for item in spending:
+        category = item['category__name'] or 'Uncategorized'
+        amount = item['total']
+        percentage = (amount / total_spending * 100) if total_spending > 0 else 0
+        writer.writerow([
+            category,
+            str(amount),
+            f'{percentage:.1f}%',
+        ])
+
+    writer.writerow([])
+    writer.writerow(['Total', str(total_spending), '100%'])
+
+    return response
+
+
+@login_required
+def export_income_statement(request):
+    """
+    Export income statement to CSV.
+
+    GET /finance/export/income-statement/
+
+    Query params:
+    - period: mtd, qtd, ytd, or custom
+    - start_date: YYYY-MM-DD (for custom)
+    - end_date: YYYY-MM-DD (for custom)
+    """
+    import csv
+    from django.http import HttpResponse
+
+    # Get period
+    period = request.GET.get('period', 'mtd')
+
+    if period == 'custom':
+        start_date_str = request.GET.get('start_date', '')
+        end_date_str = request.GET.get('end_date', '')
+        try:
+            start_date = date.fromisoformat(start_date_str)
+            end_date = date.fromisoformat(end_date_str)
+        except ValueError:
+            start_date, end_date = _get_date_range_for_period('mtd')
+    else:
+        start_date, end_date = _get_date_range_for_period(period)
+
+    # Get income by category
+    from django.db.models import Sum
+
+    income = Transaction.objects.filter(
+        transaction_type='income',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).values(
+        'category__name'
+    ).annotate(
+        total=Sum('amount')
+    ).order_by('-total')
+
+    # Get expenses by category
+    expenses = Transaction.objects.filter(
+        transaction_type='expense',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).values(
+        'category__name'
+    ).annotate(
+        total=Sum('amount')
+    ).order_by('-total')
+
+    # Get owner's draws
+    draws = Transaction.objects.filter(
+        transaction_type='owners_draw',
+        transaction_date__gte=start_date,
+        transaction_date__lte=end_date
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+    total_income = sum(item['total'] for item in income)
+    total_expenses = sum(item['total'] for item in expenses)
+    net_profit = total_income - total_expenses
+    retained_earnings = net_profit - draws
+
+    # Create CSV response
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="income_statement_{start_date.isoformat()}_to_{end_date.isoformat()}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Income Statement'])
+    writer.writerow([f'Period: {start_date.isoformat()} to {end_date.isoformat()}'])
+    writer.writerow([])
+
+    # Income section
+    writer.writerow(['INCOME'])
+    for item in income:
+        category = item['category__name'] or 'Uncategorized'
+        writer.writerow([f'  {category}', str(item['total'])])
+    writer.writerow(['Total Income', str(total_income)])
+    writer.writerow([])
+
+    # Expenses section
+    writer.writerow(['EXPENSES'])
+    for item in expenses:
+        category = item['category__name'] or 'Uncategorized'
+        writer.writerow([f'  {category}', str(item['total'])])
+    writer.writerow(['Total Expenses', str(total_expenses)])
+    writer.writerow([])
+
+    # Summary
+    writer.writerow(['NET PROFIT', str(net_profit)])
+    writer.writerow([])
+    writer.writerow(["Owner's Draws", str(draws)])
+    writer.writerow(['RETAINED EARNINGS', str(retained_earnings)])
+
+    return response

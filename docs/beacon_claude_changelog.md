@@ -6,6 +6,29 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 14: Export Functionality
+- Added CSV export for transactions and reports
+- Files created:
+  - `finance/tests/test_exports.py` - 22 tests for export functionality
+- Files modified:
+  - `finance/views.py` - Added export_transactions, export_spending_report, export_income_statement views
+  - `finance/urls.py` - Added export routes
+- Export Views:
+  - `export_transactions` - Export filtered transactions to CSV with all fields
+  - `export_spending_report` - Export spending by category with percentages
+  - `export_income_statement` - Export P&L report with income, expenses, draws, retained earnings
+- Features:
+  - Transaction export supports all filters (account, type, category, date range, search)
+  - Report exports support period selection (MTD, QTD, YTD, last month, last quarter, custom)
+  - CSV includes headers and properly formatted data
+  - Automatic filename generation with date
+- Routes:
+  - `GET /finance/export/transactions/` - Export transactions CSV
+  - `GET /finance/export/spending/` - Export spending report CSV
+  - `GET /finance/export/income-statement/` - Export income statement CSV
+- Tests: 22 new tests (417 total now passing)
+- Notes: Phase 14 export functionality complete.
+
 ### Phase 14: Navigation and Polish
 - Implemented comprehensive navigation menu across all pages
 - Files created:
