@@ -24,20 +24,50 @@
         }
         nav {
             background-color: #2c3e50;
-            padding: 15px 20px;
+            padding: 0;
             margin-bottom: 20px;
         }
-        nav a {
-            color: white;
-            text-decoration: none;
-            margin-right: 20px;
-        }
-        nav a:hover {
-            text-decoration: underline;
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
         .nav-brand {
             font-weight: bold;
             font-size: 1.2em;
+            color: white;
+            text-decoration: none;
+            padding: 15px 20px;
+        }
+        .nav-brand:hover {
+            background-color: #34495e;
+        }
+        .nav-links {
+            display: flex;
+            align-items: center;
+        }
+        .nav-links a {
+            color: rgba(255, 255, 255, 0.85);
+            text-decoration: none;
+            padding: 15px 15px;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .nav-links a:hover {
+            background-color: #34495e;
+            color: white;
+        }
+        .nav-links a.active {
+            background-color: #3498db;
+            color: white;
+        }
+        .nav-divider {
+            width: 1px;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.2);
+            margin: 0 5px;
         }
         h1, h2, h3 {
             color: #2c3e50;
@@ -194,8 +224,22 @@
 </head>
 <body>
     <nav>
-        <span class="nav-brand">Beacon Innovations Finance</span>
-        <a href="{% url 'finance:transaction_list' %}">Transactions</a>
+        <div class="nav-container">
+            <a href="{% url 'finance:dashboard' %}" class="nav-brand">Beacon Finance</a>
+            <div class="nav-links">
+                <a href="{% url 'finance:dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
+                <a href="{% url 'finance:transaction_list' %}" {% if 'transaction' in request.resolver_match.url_name %}class="active"{% endif %}>Transactions</a>
+                <a href="{% url 'finance:account_list' %}" {% if 'account' in request.resolver_match.url_name %}class="active"{% endif %}>Accounts</a>
+                <a href="{% url 'finance:category_list' %}" {% if 'category' in request.resolver_match.url_name %}class="active"{% endif %}>Categories</a>
+                <span class="nav-divider"></span>
+                <a href="{% url 'finance:recurring_list' %}" {% if 'recurring' in request.resolver_match.url_name %}class="active"{% endif %}>Recurring</a>
+                <a href="{% url 'finance:csv_import_list' %}" {% if 'csv_import' in request.resolver_match.url_name %}class="active"{% endif %}>Imports</a>
+                <span class="nav-divider"></span>
+                <a href="{% url 'finance:spending_report' %}" {% if 'spending' in request.resolver_match.url_name %}class="active"{% endif %}>Reports</a>
+                <a href="{% url 'finance:alert_list' %}" {% if 'alert' in request.resolver_match.url_name %}class="active"{% endif %}>Tax Alerts</a>
+                <a href="{% url 'finance:audit_log_list' %}" {% if 'audit' in request.resolver_match.url_name %}class="active"{% endif %}>Audit Log</a>
+            </div>
+        </div>
     </nav>
 
     <div class="container">
