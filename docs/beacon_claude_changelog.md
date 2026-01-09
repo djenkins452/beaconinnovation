@@ -6,6 +6,30 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### QA Review & Security/Validation Fixes
+- Conducted comprehensive QA review and implemented critical fixes
+- Files created:
+  - `finance/migrations/0005_add_category_unique_constraint.py` - Database constraint for category uniqueness
+- Files modified:
+  - `finance/views.py` - Added receipt permission check security fix
+  - `finance/forms.py` - Added balance validation for transfers and owner's draws
+  - `finance/models.py` - Added UniqueConstraint on Category(name, category_type)
+  - `finance/templates/finance/transaction_list.html` - Added Export CSV button
+  - `finance/tests/` (11 files) - Updated to use get_or_create for category uniqueness
+- Security Fixes:
+  - **Receipt Permission Check:** Added `_check_receipt_access()` to verify user has permission to view/modify receipts. Previously any logged-in user could access any receipt by URL.
+  - Applied to: view_receipt, download_receipt, delete_receipt, get_receipt_info
+- Validation Fixes:
+  - **Transfer Balance Validation:** Added check in TransactionForm to prevent transfers exceeding available balance
+  - **Owner's Draw Balance Validation:** Added check to prevent owner's draws exceeding available balance
+  - Both show user-friendly error with available amount
+- Data Integrity:
+  - **Category Uniqueness Constraint:** Added database-level UniqueConstraint on (name, category_type) to prevent duplicate categories
+- UI Improvements:
+  - Added "Export CSV" button to transaction list that preserves current filter parameters
+- Tests: All 417 tests passing
+- Notes: These fixes address critical security and data integrity issues identified during QA review.
+
 ### Code Review & Performance Improvements
 - Conducted comprehensive code review and implemented performance fixes
 - Files created:
