@@ -15,11 +15,11 @@ class CalculateTaxAlertsCommandTest(TestCase):
             account_type='checking',
             institution='Test Bank'
         )
-        self.income_category = Category.objects.create(
+        self.income_category, _ = Category.objects.get_or_create(
             name='Service Revenue',
             category_type='income'
         )
-        self.expense_category = Category.objects.create(
+        self.expense_category, _ = Category.objects.get_or_create(
             name='Software',
             category_type='expense'
         )

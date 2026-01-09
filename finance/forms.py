@@ -186,11 +186,37 @@ class TransactionForm(forms.ModelForm):
                 self.add_error('transfer_to_account', 'Transfer transactions require a destination account.')
             elif transfer_to_account == account:
                 self.add_error('transfer_to_account', 'Cannot transfer to the same account.')
+            # Warn about insufficient balance for transfers from checking/savings
+            elif account and account.account_type in ('checking', 'savings'):
+                amount = cleaned_data.get('amount')
+                if amount:
+                    available_balance = account.current_balance
+                    # If editing, add back the original amount (since it was already deducted)
+                    if self.instance.pk and self.instance.transaction_type == 'transfer':
+                        available_balance += self.instance.amount
+                    if amount > available_balance:
+                        self.add_error(
+                            'amount',
+                            f'Insufficient balance. Available: ${available_balance:.2f}'
+                        )
 
         # Validate owner's draw
         if transaction_type == 'owners_draw':
             if account and account.account_type != 'checking':
                 self.add_error('account', "Owner's draws must come from a checking account.")
+            elif account:
+                # Check balance for owner's draw
+                amount = cleaned_data.get('amount')
+                if amount:
+                    available_balance = account.current_balance
+                    # If editing, add back the original amount
+                    if self.instance.pk and self.instance.transaction_type == 'owners_draw':
+                        available_balance += self.instance.amount
+                    if amount > available_balance:
+                        self.add_error(
+                            'amount',
+                            f'Insufficient balance for draw. Available: ${available_balance:.2f}'
+                        )
 
         # Validate date not in future
         if transaction_date and transaction_date > date.today():

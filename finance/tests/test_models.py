@@ -49,12 +49,12 @@ class AccountModelTest(TestCase):
 
     def test_current_balance_checking(self):
         """Test current balance calculation for checking account."""
-        # Create categories
-        income_cat = Category.objects.create(
+        # Create categories (use get_or_create for uniqueness constraint compatibility)
+        income_cat, _ = Category.objects.get_or_create(
             name='Income',
             category_type='income'
         )
-        expense_cat = Category.objects.create(
+        expense_cat, _ = Category.objects.get_or_create(
             name='Expense',
             category_type='expense'
         )
@@ -84,7 +84,7 @@ class AccountModelTest(TestCase):
 
     def test_current_balance_credit_card(self):
         """Test current balance calculation for credit card."""
-        expense_cat = Category.objects.create(
+        expense_cat, _ = Category.objects.get_or_create(
             name='Expense',
             category_type='expense'
         )
@@ -108,7 +108,7 @@ class CategoryModelTest(TestCase):
 
     def test_create_category(self):
         """Test creating a category."""
-        category = Category.objects.create(
+        category, _ = Category.objects.get_or_create(
             name='Test Category',
             category_type='expense'
         )
@@ -117,28 +117,32 @@ class CategoryModelTest(TestCase):
 
     def test_str_representation(self):
         """Test string representation."""
-        category = Category.objects.create(
-            name='Software',
+        category, _ = Category.objects.get_or_create(
+            name='Software Test',
             category_type='expense'
         )
-        self.assertEqual(str(category), 'Software (Expense)')
+        self.assertEqual(str(category), 'Software Test (Expense)')
 
     def test_system_category_cannot_be_deleted(self):
         """Test that system categories cannot be deleted."""
-        category = Category.objects.create(
-            name='System Category',
+        category, _ = Category.objects.get_or_create(
+            name='System Category Test',
             category_type='expense',
-            is_system=True
+            defaults={'is_system': True}
         )
+        # Ensure is_system is True (may have been created without it)
+        if not category.is_system:
+            category.is_system = True
+            category.save()
         with self.assertRaises(ValidationError):
             category.delete()
 
     def test_non_system_category_can_be_deleted(self):
         """Test that non-system categories can be deleted."""
-        category = Category.objects.create(
-            name='Custom Category',
+        category, created = Category.objects.get_or_create(
+            name='Custom Category Deletable',
             category_type='expense',
-            is_system=False
+            defaults={'is_system': False}
         )
         category_id = category.pk
         category.delete()
@@ -169,11 +173,11 @@ class TransactionModelTest(TestCase):
             account_type='credit_card',
             institution='Test Bank'
         )
-        self.expense_category = Category.objects.create(
+        self.expense_category, _ = Category.objects.get_or_create(
             name='Test Expense',
             category_type='expense'
         )
-        self.income_category = Category.objects.create(
+        self.income_category, _ = Category.objects.get_or_create(
             name='Test Income',
             category_type='income'
         )
@@ -402,7 +406,7 @@ class RecurringTransactionModelTest(TestCase):
             account_type='checking',
             institution='Test Bank'
         )
-        self.category = Category.objects.create(
+        self.category, _ = Category.objects.get_or_create(
             name='Subscriptions',
             category_type='expense'
         )

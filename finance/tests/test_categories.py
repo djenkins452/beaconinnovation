@@ -38,10 +38,10 @@ class CategoryModelTests(TestCase):
 
     def test_non_system_category_can_be_deleted(self):
         """Test that non-system categories can be deleted."""
-        category = Category.objects.create(
-            name='Custom Category',
+        category, _ = Category.objects.get_or_create(
+            name='Custom Category Test Delete',
             category_type='expense',
-            is_system=False,
+            defaults={'is_system': False}
         )
 
         category_id = category.id
@@ -51,18 +51,16 @@ class CategoryModelTests(TestCase):
 
     def test_category_ordering(self):
         """Test category ordering by type, display_order, name."""
-        # Create categories with specific display orders
-        cat1 = Category.objects.create(
+        # Create categories with specific display orders (use get_or_create)
+        cat1, _ = Category.objects.get_or_create(
             name='ZZZ Category',
             category_type='expense',
-            display_order=1,
-            is_system=False,
+            defaults={'display_order': 1, 'is_system': False}
         )
-        cat2 = Category.objects.create(
+        cat2, _ = Category.objects.get_or_create(
             name='AAA Category',
             category_type='expense',
-            display_order=2,
-            is_system=False,
+            defaults={'display_order': 2, 'is_system': False}
         )
 
         categories = list(Category.objects.filter(
@@ -179,13 +177,11 @@ class CategoryViewTests(TestCase):
             category_type='income'
         )
 
-        # Create a non-system category for testing
-        self.custom_category = Category.objects.create(
+        # Create a non-system category for testing (use get_or_create)
+        self.custom_category, _ = Category.objects.get_or_create(
             name='Custom Test Category',
             category_type='expense',
-            is_system=False,
-            is_active=True,
-            display_order=99,
+            defaults={'is_system': False, 'is_active': True, 'display_order': 99}
         )
 
     def test_category_list_requires_login(self):
@@ -346,11 +342,12 @@ class CategoryViewTests(TestCase):
 
     def test_category_delete_success(self):
         """Test deleting a category without transactions."""
-        # Create a fresh category with no transactions
-        category = Category.objects.create(
-            name='Deletable Category',
+        # Create a fresh category with no transactions (use unique name each time)
+        import uuid
+        category, _ = Category.objects.get_or_create(
+            name=f'Deletable Category {uuid.uuid4().hex[:8]}',
             category_type='expense',
-            is_system=False,
+            defaults={'is_system': False}
         )
 
         response = self.client.post(

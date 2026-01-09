@@ -38,9 +38,9 @@ class AuditLogViewTestCase(TestCase):
             created_by=self.user,
         )
 
-        # Create test category
-        self.category = Category.objects.create(
-            name='Test Expense',
+        # Create test category (use get_or_create for uniqueness constraint compatibility)
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Expense Audit',
             category_type='expense',
         )
 

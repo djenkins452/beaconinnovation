@@ -32,16 +32,16 @@ class ExportTestCase(TestCase):
             institution='Test Bank'
         )
 
-        # Create test categories
-        self.income_category = Category.objects.create(
+        # Create test categories (use get_or_create for uniqueness constraint compatibility)
+        self.income_category, _ = Category.objects.get_or_create(
             name='Consulting',
             category_type='income'
         )
-        self.expense_category = Category.objects.create(
+        self.expense_category, _ = Category.objects.get_or_create(
             name='Office Supplies',
             category_type='expense'
         )
-        self.expense_category2 = Category.objects.create(
+        self.expense_category2, _ = Category.objects.get_or_create(
             name='Software',
             category_type='expense'
         )
@@ -306,7 +306,7 @@ class IncomeStatementExportTests(ExportTestCase):
     def test_export_income_statement_includes_owners_draw(self):
         """CSV includes owner's draws."""
         # Create owner's draw
-        draw_category = Category.objects.create(
+        draw_category, _ = Category.objects.get_or_create(
             name="Owner's Draw",
             category_type='owners_draw'
         )

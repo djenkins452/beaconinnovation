@@ -216,8 +216,8 @@ class OCRIntegrationTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category OCR',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(
@@ -253,8 +253,8 @@ class OCRViewTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category OCR Views',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(

@@ -33,11 +33,11 @@ class RecurringTransactionViewTestCase(TestCase):
             created_by=self.user,
         )
 
-        # Create test category
-        self.category = Category.objects.create(
+        # Create test category (use get_or_create for uniqueness constraint compatibility)
+        self.category, _ = Category.objects.get_or_create(
             name='Software & Subscriptions',
             category_type='expense',
-            is_system=True,
+            defaults={'is_system': True}
         )
 
         # Create test recurring transaction
@@ -491,11 +491,11 @@ class RecurringTransactionFormTests(RecurringTransactionViewTestCase):
 
     def test_form_filters_expense_categories_only(self):
         """Test that form only shows expense categories."""
-        # Create an income category
-        income_category = Category.objects.create(
+        # Create an income category (use get_or_create for uniqueness constraint compatibility)
+        income_category, _ = Category.objects.get_or_create(
             name='Service Revenue',
             category_type='income',
-            is_system=True,
+            defaults={'is_system': True}
         )
 
         response = self.client.get(reverse('finance:recurring_create'))

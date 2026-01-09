@@ -34,16 +34,16 @@ class TaxAlertViewTestCase(TestCase):
             created_by=self.user,
         )
 
-        # Create test categories
-        self.income_category = Category.objects.create(
+        # Create test categories (use get_or_create for uniqueness constraint compatibility)
+        self.income_category, _ = Category.objects.get_or_create(
             name='Service Revenue',
             category_type='income',
-            is_system=True,
+            defaults={'is_system': True}
         )
-        self.expense_category = Category.objects.create(
+        self.expense_category, _ = Category.objects.get_or_create(
             name='Software & Subscriptions',
             category_type='expense',
-            is_system=True,
+            defaults={'is_system': True}
         )
 
         # Create a triggered alert

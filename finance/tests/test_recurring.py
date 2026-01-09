@@ -15,7 +15,7 @@ class GenerateRecurringCommandTest(TestCase):
             account_type='checking',
             institution='Test Bank'
         )
-        self.category = Category.objects.create(
+        self.category, _ = Category.objects.get_or_create(
             name='Subscriptions',
             category_type='expense'
         )

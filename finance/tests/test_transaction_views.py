@@ -43,12 +43,12 @@ class TransactionViewTestCase(TestCase):
             opening_balance=Decimal('500.00')
         )
 
-        # Create categories
-        self.expense_category = Category.objects.create(
+        # Create categories (use get_or_create for uniqueness constraint compatibility)
+        self.expense_category, _ = Category.objects.get_or_create(
             name='Office Supplies',
             category_type='expense'
         )
-        self.income_category = Category.objects.create(
+        self.income_category, _ = Category.objects.get_or_create(
             name='Client Income',
             category_type='income'
         )
@@ -716,10 +716,10 @@ class CategoriesByTypeAPITests(TransactionViewTestCase):
     def test_inactive_categories_excluded(self):
         """Test that inactive categories are not returned."""
         # Create inactive category
-        Category.objects.create(
+        Category.objects.get_or_create(
             name='Inactive Category',
             category_type='expense',
-            is_active=False
+            defaults={'is_active': False}
         )
         response = self.client.get(
             reverse('finance:categories_by_type'),

@@ -155,8 +155,8 @@ class ReceiptUploadViewTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category Receipt Upload',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(
@@ -263,8 +263,8 @@ class ReceiptViewDownloadTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category Receipt View',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(
@@ -349,8 +349,8 @@ class ReceiptDeleteTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category Receipt Delete',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(
@@ -413,8 +413,8 @@ class ListTransactionReceiptsTests(TestCase):
             institution='Test Bank',
             created_by=self.user
         )
-        self.category = Category.objects.create(
-            name='Test Category',
+        self.category, _ = Category.objects.get_or_create(
+            name='Test Category Receipt List',
             category_type='expense'
         )
         self.transaction = Transaction.objects.create(

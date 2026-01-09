@@ -6,7 +6,10 @@
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1>Transactions</h1>
-        <a href="{% url 'finance:transaction_create' %}" class="btn btn-primary">+ New Transaction</a>
+        <div>
+            <a href="{% url 'finance:export_transactions' %}?{{ request.GET.urlencode }}" class="btn btn-secondary" style="margin-right: 10px;">Export CSV</a>
+            <a href="{% url 'finance:transaction_create' %}" class="btn btn-primary">+ New Transaction</a>
+        </div>
     </div>
 
     <form method="get" class="mb-3">

@@ -601,6 +601,23 @@ def upload_receipt(request, transaction_id):
         }, status=500)
 
 
+def _check_receipt_access(request, receipt):
+    """
+    Check if user has access to view/modify a receipt.
+    Returns True if allowed, False otherwise.
+    """
+    # Superusers can access all receipts
+    if request.user.is_superuser:
+        return True
+    # User must be the creator of the transaction
+    if receipt.transaction.created_by == request.user:
+        return True
+    # User must be the uploader of the receipt
+    if receipt.uploaded_by == request.user:
+        return True
+    return False
+
+
 @login_required
 @require_GET
 def view_receipt(request, receipt_id):
@@ -612,6 +629,10 @@ def view_receipt(request, receipt_id):
     Returns the file with appropriate content type for browser display.
     """
     receipt = get_object_or_404(Receipt, pk=receipt_id)
+
+    # Security check: verify user has access to this receipt
+    if not _check_receipt_access(request, receipt):
+        raise Http404("Receipt not found")
 
     try:
         # Determine content type
@@ -646,6 +667,10 @@ def download_receipt(request, receipt_id):
     """
     receipt = get_object_or_404(Receipt, pk=receipt_id)
 
+    # Security check: verify user has access to this receipt
+    if not _check_receipt_access(request, receipt):
+        raise Http404("Receipt not found")
+
     try:
         # Determine content type
         content_type_map = {
@@ -679,6 +704,13 @@ def delete_receipt(request, receipt_id):
     """
     receipt = get_object_or_404(Receipt, pk=receipt_id)
 
+    # Security check: verify user has access to this receipt
+    if not _check_receipt_access(request, receipt):
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to delete this receipt.'
+        }, status=403)
+
     try:
         # Delete the file from storage
         if receipt.file:
@@ -711,6 +743,10 @@ def get_receipt_info(request, receipt_id):
     Returns JSON with receipt details.
     """
     receipt = get_object_or_404(Receipt, pk=receipt_id)
+
+    # Security check: verify user has access to this receipt
+    if not _check_receipt_access(request, receipt):
+        raise Http404("Receipt not found")
 
     return JsonResponse({
         'id': str(receipt.id),

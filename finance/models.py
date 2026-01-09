@@ -206,6 +206,12 @@ class Category(models.Model):
     class Meta:
         ordering = ['category_type', 'display_order', 'name']
         verbose_name_plural = 'Categories'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'category_type'],
+                name='unique_category_name_per_type'
+            )
+        ]
 
     def __str__(self):
         return f'{self.name} ({self.get_category_type_display()})'
