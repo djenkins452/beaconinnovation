@@ -1,0 +1,116 @@
+{% extends "admin_console/base.html" %}
+
+{% block title %}Tasks{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">Tasks</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'admin_console:task_create' %}" class="btn btn-sm btn-primary me-2">
+            <i class="bi-plus"></i> New Task
+        </a>
+        <a href="{% url 'admin_console:task_import' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi-upload"></i> Import
+        </a>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="row mb-3">
+    <div class="col-md-6">
+        <form method="get" class="row g-2">
+            <div class="col-auto">
+                <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">All Statuses</option>
+                    {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <select name="phase" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">All Phases</option>
+                    {% for phase in phases %}
+                        <option value="{{ phase }}" {% if phase_filter == phase %}selected{% endif %}>{{ phase }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% if status_filter or phase_filter %}
+            <div class="col-auto">
+                <a href="{% url 'admin_console:task_list' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+            </div>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<!-- Task List -->
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Phase</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in tasks %}
+            <tr>
+                <td>
+                    <a href="{% url 'admin_console:task_detail' task_id=task.id %}">{{ task.title }}</a>
+                    {% if task.depends_on %}
+                        <br><small class="text-muted">Depends on: {{ task.depends_on.title|truncatechars:30 }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if task.status == 'ready' %}
+                        <span class="badge bg-success">Ready</span>
+                    {% elif task.status == 'in_progress' %}
+                        <span class="badge bg-primary">In Progress</span>
+                    {% elif task.status == 'done' %}
+                        <span class="badge bg-secondary">Done</span>
+                    {% elif task.status == 'blocked' %}
+                        <span class="badge bg-warning text-dark">Blocked</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if task.priority == 4 %}
+                        <span class="priority-critical"><i class="bi-exclamation-triangle-fill"></i> Critical</span>
+                    {% elif task.priority == 3 %}
+                        <span class="priority-high"><i class="bi-arrow-up"></i> High</span>
+                    {% elif task.priority == 2 %}
+                        <span class="priority-medium"><i class="bi-dash"></i> Medium</span>
+                    {% else %}
+                        <span class="priority-low"><i class="bi-arrow-down"></i> Low</span>
+                    {% endif %}
+                </td>
+                <td>{{ task.phase|default:"-" }}</td>
+                <td>{{ task.created_at|date:"M d, Y" }}</td>
+                <td>
+                    <a href="{% url 'admin_console:task_edit' task_id=task.id %}" class="btn btn-sm btn-outline-primary" title="Edit">
+                        <i class="bi-pencil"></i>
+                    </a>
+                    <a href="{% url 'admin_console:task_delete' task_id=task.id %}" class="btn btn-sm btn-outline-danger" title="Delete">
+                        <i class="bi-trash"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" class="text-center text-muted py-4">
+                    No tasks found.
+                    {% if status_filter or phase_filter %}
+                        <a href="{% url 'admin_console:task_list' %}">Clear filters</a> or
+                    {% endif %}
+                    <a href="{% url 'admin_console:task_create' %}">Create a task</a>.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "admin_console/base.html" %}
+
+{% block title %}Import Tasks{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'admin_console:task_list' %}">Tasks</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Import</li>
+    </ol>
+</nav>
+
+<h1 class="h2 mb-4">Import Tasks from JSON</h1>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi-upload"></i> Upload JSON File
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label for="id_json_file" class="form-label">JSON File *</label>
+                        {{ form.json_file }}
+                        {% if form.json_file.errors %}
+                            <div class="invalid-feedback d-block">{{ form.json_file.errors.0 }}</div>
+                        {% endif %}
+                        <small class="text-muted">{{ form.json_file.help_text }}</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi-upload"></i> Import Tasks
+                    </button>
+                    <a href="{% url 'admin_console:task_list' %}" class="btn btn-outline-secondary">
+                        Cancel
+                    </a>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi-file-code"></i> Expected JSON Format
+            </div>
+            <div class="card-body">
+                <p>Upload a JSON file with an array of tasks or an object with a <code>tasks</code> key:</p>
+
+                <h6>Array format:</h6>
+                <pre class="small bg-light p-2 rounded"><code>[
+  {
+    "title": "Task Title",
+    "description": {
+      "objective": "What to accomplish",
+      "inputs": ["Context"],
+      "actions": ["Step 1", "Step 2"],
+      "output": "Expected result"
+    },
+    "priority": 2,
+    "phase": "Phase 1"
+  }
+]</code></pre>
+
+                <h6>Object format:</h6>
+                <pre class="small bg-light p-2 rounded"><code>{
+  "tasks": [
+    { ... }
+  ]
+}</code></pre>
+
+                <h6>Fields:</h6>
+                <ul class="small mb-0">
+                    <li><strong>title</strong> - Task title (required)</li>
+                    <li><strong>description</strong> - JSON with objective, inputs, actions, output (required)</li>
+                    <li><strong>priority</strong> - 1=Low, 2=Medium, 3=High, 4=Critical (optional, default: 2)</li>
+                    <li><strong>phase</strong> - Phase name (optional)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

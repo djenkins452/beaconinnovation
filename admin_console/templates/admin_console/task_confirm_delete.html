@@ -1,0 +1,45 @@
+{% extends "admin_console/base.html" %}
+
+{% block title %}Delete Task{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'admin_console:task_list' %}">Tasks</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'admin_console:task_detail' task_id=task.id %}">{{ task.title|truncatechars:30 }}</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Delete</li>
+    </ol>
+</nav>
+
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <i class="bi-exclamation-triangle"></i> Confirm Deletion
+            </div>
+            <div class="card-body">
+                <p>Are you sure you want to delete this task?</p>
+
+                <div class="alert alert-secondary">
+                    <strong>{{ task.title }}</strong>
+                    <br>
+                    <small class="text-muted">{{ task.description.objective|truncatechars:100 }}</small>
+                </div>
+
+                <p class="text-danger mb-0"><strong>This action cannot be undone.</strong></p>
+            </div>
+            <div class="card-footer">
+                <form method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi-trash"></i> Yes, Delete Task
+                    </button>
+                    <a href="{% url 'admin_console:task_detail' task_id=task.id %}" class="btn btn-outline-secondary">
+                        Cancel
+                    </a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "admin_console/base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">Dashboard</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'admin_console:task_create' %}" class="btn btn-sm btn-primary">
+            <i class="bi-plus"></i> New Task
+        </a>
+    </div>
+</div>
+
+<!-- Status Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Ready</h5>
+                <p class="card-text display-4">{{ tasks_by_status.ready }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">In Progress</h5>
+                <p class="card-text display-4">{{ tasks_by_status.in_progress }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-secondary">
+            <div class="card-body">
+                <h5 class="card-title">Done</h5>
+                <p class="card-text display-4">{{ tasks_by_status.done }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-warning">
+            <div class="card-body">
+                <h5 class="card-title">Blocked</h5>
+                <p class="card-text display-4">{{ tasks_by_status.blocked }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Tasks -->
+<h3>Recent Tasks</h3>
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Phase</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in recent_tasks %}
+            <tr>
+                <td>
+                    <a href="{% url 'admin_console:task_detail' task_id=task.id %}">{{ task.title }}</a>
+                </td>
+                <td>
+                    {% if task.status == 'ready' %}
+                        <span class="badge bg-success">Ready</span>
+                    {% elif task.status == 'in_progress' %}
+                        <span class="badge bg-primary">In Progress</span>
+                    {% elif task.status == 'done' %}
+                        <span class="badge bg-secondary">Done</span>
+                    {% elif task.status == 'blocked' %}
+                        <span class="badge bg-warning text-dark">Blocked</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if task.priority == 4 %}
+                        <span class="priority-critical"><i class="bi-exclamation-triangle-fill"></i> Critical</span>
+                    {% elif task.priority == 3 %}
+                        <span class="priority-high"><i class="bi-arrow-up"></i> High</span>
+                    {% elif task.priority == 2 %}
+                        <span class="priority-medium"><i class="bi-dash"></i> Medium</span>
+                    {% else %}
+                        <span class="priority-low"><i class="bi-arrow-down"></i> Low</span>
+                    {% endif %}
+                </td>
+                <td>{{ task.phase|default:"-" }}</td>
+                <td>{{ task.created_at|date:"M d, Y H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5" class="text-center text-muted">No tasks yet. <a href="{% url 'admin_console:task_create' %}">Create one</a>.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- API Info -->
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi-code-slash"></i> Claude API Endpoints
+    </div>
+    <div class="card-body">
+        <p class="card-text">Use these endpoints with the <code>X-Claude-API-Key</code> header:</p>
+        <ul class="list-unstyled font-monospace">
+            <li><code>GET /admin-console/api/claude/ready-tasks/?auto_start=true</code> - Fetch ready tasks</li>
+            <li><code>POST /admin-console/api/claude/tasks/&lt;id&gt;/status/</code> - Update task status</li>
+            <li><code>GET /admin-console/api/claude/tasks/&lt;id&gt;/</code> - Get task details</li>
+            <li><code>POST /admin-console/api/claude/tasks/import/</code> - Bulk import tasks</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

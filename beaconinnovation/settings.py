@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'website',
     'wlj',
+    'admin_console',
     'whitenoise.runserver_nostatic',
 ]
 
@@ -131,3 +132,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Login settings
 LOGIN_URL = 'wlj:login'
+
+# Claude API Key for admin console task management
+import os
+CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', 'beacon-claude-api-key-replace-me-with-real-key')

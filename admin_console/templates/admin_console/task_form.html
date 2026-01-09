@@ -1,0 +1,104 @@
+{% extends "admin_console/base.html" %}
+
+{% block title %}{{ action }} Task{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'admin_console:task_list' %}">Tasks</a></li>
+        {% if task %}
+            <li class="breadcrumb-item"><a href="{% url 'admin_console:task_detail' task_id=task.id %}">{{ task.title|truncatechars:30 }}</a></li>
+        {% endif %}
+        <li class="breadcrumb-item active" aria-current="page">{{ action }}</li>
+    </ol>
+</nav>
+
+<h1 class="h2 mb-4">{{ action }} Task</h1>
+
+<div class="row">
+    <div class="col-md-8">
+        <form method="post" novalidate>
+            {% csrf_token %}
+
+            <div class="mb-3">
+                <label for="id_title" class="form-label">Title *</label>
+                {{ form.title }}
+                {% if form.title.errors %}
+                    <div class="invalid-feedback d-block">{{ form.title.errors.0 }}</div>
+                {% endif %}
+            </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="id_priority" class="form-label">Priority</label>
+                    {{ form.priority }}
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="id_status" class="form-label">Status</label>
+                    {{ form.status }}
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="id_phase" class="form-label">Phase</label>
+                    {{ form.phase }}
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="id_depends_on" class="form-label">Depends On</label>
+                {{ form.depends_on }}
+                <small class="text-muted">Optional: Select a task that must be completed first.</small>
+            </div>
+
+            <div class="mb-3">
+                <label for="id_description_json" class="form-label">Description (JSON) *</label>
+                {{ form.description_json }}
+                {% if form.description_json.errors %}
+                    <div class="invalid-feedback d-block">{{ form.description_json.errors.0 }}</div>
+                {% endif %}
+                <small class="text-muted">{{ form.description_json.help_text }}</small>
+            </div>
+
+            <div class="mb-3">
+                <label for="id_notes" class="form-label">Notes</label>
+                {{ form.notes }}
+                <small class="text-muted">Optional notes or context for this task.</small>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi-check"></i> {{ action }} Task
+                </button>
+                <a href="{% if task %}{% url 'admin_console:task_detail' task_id=task.id %}{% else %}{% url 'admin_console:task_list' %}{% endif %}" class="btn btn-outline-secondary">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi-lightbulb"></i> JSON Format
+            </div>
+            <div class="card-body">
+                <p class="small">The description must be a JSON object with these keys:</p>
+                <pre class="small bg-light p-2 rounded"><code>{
+  "objective": "What to accomplish",
+  "inputs": ["Context item 1"],
+  "actions": [
+    "Step 1",
+    "Step 2"
+  ],
+  "output": "Expected result"
+}</code></pre>
+                <ul class="small mb-0">
+                    <li><strong>objective</strong> - Required, non-empty</li>
+                    <li><strong>inputs</strong> - Required, can be empty []</li>
+                    <li><strong>actions</strong> - Required, non-empty list</li>
+                    <li><strong>output</strong> - Required, non-empty</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
