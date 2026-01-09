@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
 from .models import Receipt, Transaction, Category, Account, CSVImport
-from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm
+from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
 from .importers import AmexCSVParser, CSVImporter, validate_csv_file
 
@@ -791,3 +791,134 @@ def csv_import_list(request):
     return render(request, 'finance/csv_import_list.html', {
         'imports': imports,
     })
+
+
+# =============================================================================
+# Account Management Views (Phase 8)
+# =============================================================================
+
+@login_required
+def account_list(request):
+    """
+    List all accounts with balances.
+
+    GET /finance/accounts/
+    """
+    accounts = Account.objects.all()
+
+    # Calculate totals
+    total_checking = sum(
+        a.current_balance for a in accounts if a.account_type == 'checking' and a.is_active
+    )
+    total_credit = sum(
+        a.current_balance for a in accounts if a.account_type == 'credit_card' and a.is_active
+    )
+    total_savings = sum(
+        a.current_balance for a in accounts if a.account_type == 'savings' and a.is_active
+    )
+
+    return render(request, 'finance/account_list.html', {
+        'accounts': accounts,
+        'total_checking': total_checking,
+        'total_credit': total_credit,
+        'total_savings': total_savings,
+    })
+
+
+@login_required
+def account_create(request):
+    """
+    Create a new account.
+
+    GET/POST /finance/accounts/new/
+    """
+    if request.method == 'POST':
+        form = AccountForm(request.POST)
+        if form.is_valid():
+            account = form.save(commit=False)
+            account.created_by = request.user
+            account.save()
+            messages.success(request, f'Account "{account.name}" created successfully.')
+            return redirect('finance:account_detail', account_id=account.id)
+    else:
+        form = AccountForm()
+
+    return render(request, 'finance/account_form.html', {
+        'form': form,
+        'title': 'New Account',
+    })
+
+
+@login_required
+def account_edit(request, account_id):
+    """
+    Edit an existing account.
+
+    GET/POST /finance/accounts/<id>/edit/
+    """
+    account = get_object_or_404(Account, pk=account_id)
+
+    if request.method == 'POST':
+        form = AccountForm(request.POST, instance=account)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Account "{account.name}" updated successfully.')
+            return redirect('finance:account_detail', account_id=account.id)
+    else:
+        form = AccountForm(instance=account)
+
+    return render(request, 'finance/account_form.html', {
+        'form': form,
+        'account': account,
+        'title': 'Edit Account',
+    })
+
+
+@login_required
+def account_detail(request, account_id):
+    """
+    View account details with transaction history.
+
+    GET /finance/accounts/<id>/
+    """
+    account = get_object_or_404(Account, pk=account_id)
+
+    # Get transactions for this account
+    transactions = Transaction.objects.filter(
+        account=account
+    ).select_related('category').order_by('-transaction_date', '-created_at')
+
+    # Also get transfers TO this account
+    transfers_in = Transaction.objects.filter(
+        transfer_to_account=account
+    ).select_related('account', 'category').order_by('-transaction_date', '-created_at')
+
+    # Pagination for transactions
+    paginator = Paginator(transactions, 25)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'finance/account_detail.html', {
+        'account': account,
+        'transactions': page_obj,
+        'transfers_in': transfers_in[:10],  # Show recent transfers in
+        'transaction_count': paginator.count,
+    })
+
+
+@login_required
+@require_POST
+def account_toggle_active(request, account_id):
+    """
+    Toggle account active status.
+
+    POST /finance/accounts/<id>/toggle-active/
+    """
+    account = get_object_or_404(Account, pk=account_id)
+    account.is_active = not account.is_active
+    account.save()
+
+    status = 'activated' if account.is_active else 'deactivated'
+    messages.success(request, f'Account "{account.name}" {status}.')
+
+    return redirect('finance:account_list')

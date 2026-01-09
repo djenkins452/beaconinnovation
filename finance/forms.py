@@ -233,3 +233,56 @@ class TransactionFilterForm(forms.Form):
         super().__init__(*args, **kwargs)
         for field_name, field in self.fields.items():
             field.widget.attrs.setdefault('class', 'form-control')
+
+
+class AccountForm(forms.ModelForm):
+    """Form for creating and editing accounts."""
+
+    class Meta:
+        model = Account
+        fields = [
+            'name',
+            'account_type',
+            'institution',
+            'last_four',
+            'is_personal',
+            'is_active',
+            'opening_balance',
+            'opening_balance_date',
+            'notes',
+        ]
+        widgets = {
+            'opening_balance_date': forms.DateInput(
+                attrs={'type': 'date'},
+                format='%Y-%m-%d'
+            ),
+            'notes': forms.Textarea(attrs={'rows': 3}),
+            'opening_balance': forms.NumberInput(attrs={'step': '0.01'}),
+            'last_four': forms.TextInput(attrs={
+                'maxlength': '4',
+                'placeholder': 'Last 4 digits',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Add CSS classes for styling
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                continue  # Don't add form-control to checkboxes
+            field.widget.attrs.setdefault('class', 'form-control')
+
+    def clean_last_four(self):
+        """Validate last four digits."""
+        last_four = self.cleaned_data.get('last_four', '')
+        if last_four and not last_four.isdigit():
+            raise ValidationError('Last four must contain only digits.')
+        return last_four
+
+    def clean_opening_balance(self):
+        """Validate opening balance is non-negative."""
+        balance = self.cleaned_data.get('opening_balance')
+        if balance is not None and balance < 0:
+            raise ValidationError('Opening balance cannot be negative.')
+        return balance

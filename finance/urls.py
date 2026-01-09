@@ -34,6 +34,13 @@ urlpatterns = [
     path('import/<uuid:import_id>/results/', views.csv_import_results, name='csv_import_results'),
     path('imports/', views.csv_import_list, name='csv_import_list'),
 
+    # Account Management (Phase 8)
+    path('accounts/', views.account_list, name='account_list'),
+    path('accounts/new/', views.account_create, name='account_create'),
+    path('accounts/<uuid:account_id>/', views.account_detail, name='account_detail'),
+    path('accounts/<uuid:account_id>/edit/', views.account_edit, name='account_edit'),
+    path('accounts/<uuid:account_id>/toggle-active/', views.account_toggle_active, name='account_toggle_active'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

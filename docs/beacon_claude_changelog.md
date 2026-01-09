@@ -6,6 +6,34 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 8: Account Management
+- Implemented account CRUD with balance tracking
+- Files created:
+  - `finance/templates/finance/account_list.html` - List view with balance totals
+  - `finance/templates/finance/account_form.html` - Create/edit form
+  - `finance/templates/finance/account_detail.html` - Detail with transaction history
+  - `finance/migrations/0003_seed_default_accounts.py` - Seed 3 default accounts
+  - `finance/tests/test_accounts.py` - 30 tests for account functionality
+- Files modified:
+  - `finance/forms.py` - Added AccountForm with validation
+  - `finance/views.py` - Added account CRUD views
+  - `finance/urls.py` - Added account routes
+- Views:
+  - `account_list` - List with balance totals by type
+  - `account_create` - Create new accounts
+  - `account_edit` - Edit existing accounts
+  - `account_detail` - View with transaction history
+  - `account_toggle_active` - Activate/deactivate accounts
+- Default Accounts Seeded:
+  - Amex Business Checking ($1,000 opening balance)
+  - Amex Blue Business Cash ($0 opening balance)
+  - Personal Amex ($0, is_personal=True)
+- Balance Calculations:
+  - Checking/Savings: opening + income - expenses - draws - transfers out + transfers in
+  - Credit Card: opening + expenses - payments
+- Tests: 30 new tests (260 total now passing)
+- Notes: Phase 8 complete.
+
 ### Phase 7: CSV Import — American Express
 - Implemented CSV import for American Express statement format
 - Files created:

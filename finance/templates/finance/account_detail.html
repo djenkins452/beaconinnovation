@@ -1,0 +1,168 @@
+{% extends "finance/base.html" %}
+
+{% block title %}{{ account.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>
+            {{ account.name }}
+            {% if account.last_four %}
+            <span class="text-muted" style="font-size: 18px;">(*{{ account.last_four }})</span>
+            {% endif %}
+        </h1>
+        <div>
+            <a href="{% url 'finance:account_edit' account.id %}" class="btn btn-primary">Edit</a>
+            <a href="{% url 'finance:account_list' %}" class="btn btn-secondary">Back to Accounts</a>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 30px; margin-bottom: 30px;">
+        <div style="flex: 1;">
+            <table>
+                <tr>
+                    <th style="width: 150px;">Type</th>
+                    <td>{{ account.get_account_type_display }}</td>
+                </tr>
+                <tr>
+                    <th>Institution</th>
+                    <td>{{ account.institution }}</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>
+                        {% if account.is_active %}
+                        <span class="badge badge-income">Active</span>
+                        {% else %}
+                        <span class="badge" style="background-color: #95a5a6; color: white;">Inactive</span>
+                        {% endif %}
+                        {% if account.is_personal %}
+                        <span class="badge" style="background-color: #9b59b6; color: white;">Personal Card</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Opening Balance</th>
+                    <td>${{ account.opening_balance|floatformat:2 }}
+                        {% if account.opening_balance_date %}
+                        <span class="text-muted">(as of {{ account.opening_balance_date|date:"M d, Y" }})</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% if account.notes %}
+                <tr>
+                    <th>Notes</th>
+                    <td>{{ account.notes }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
+
+        <div style="padding: 30px; background-color: {% if account.account_type == 'credit_card' %}#fff3e0{% else %}#e8f5e9{% endif %}; border-radius: 8px; text-align: center; min-width: 200px;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Current Balance</div>
+            <div style="font-size: 36px; font-weight: bold; color: {% if account.account_type == 'credit_card' %}{% if account.current_balance > 0 %}#e74c3c{% else %}#27ae60{% endif %}{% else %}{% if account.current_balance >= 0 %}#27ae60{% else %}#e74c3c{% endif %}{% endif %};">
+                ${{ account.current_balance|floatformat:2 }}
+            </div>
+            {% if account.account_type == 'credit_card' %}
+            <div style="font-size: 12px; color: #888; margin-top: 10px;">Amount Owed</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Transactions ({{ transaction_count }})</h2>
+        <a href="{% url 'finance:transaction_create' %}?account={{ account.id }}" class="btn btn-primary">+ New Transaction</a>
+    </div>
+
+    {% if transactions %}
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 100px;">Date</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th style="width: 80px;">Type</th>
+                <th style="width: 100px; text-align: right;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.transaction_date|date:"M d, Y" }}</td>
+                <td>
+                    <a href="{% url 'finance:transaction_detail' tx.id %}">{{ tx.description|truncatewords:8 }}</a>
+                    {% if tx.vendor %}
+                    <br><small class="text-muted">{{ tx.vendor }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if tx.category %}
+                    {{ tx.category.name }}
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge badge-{{ tx.transaction_type }}">
+                        {{ tx.get_transaction_type_display }}
+                    </span>
+                </td>
+                <td style="text-align: right;">
+                    <span style="color: {% if tx.transaction_type == 'income' %}#27ae60{% elif tx.transaction_type == 'expense' %}#e74c3c{% else %}#333{% endif %};">
+                        {% if tx.transaction_type == 'income' %}+{% elif tx.transaction_type == 'expense' or tx.transaction_type == 'owners_draw' %}-{% endif %}
+                        ${{ tx.amount|floatformat:2 }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if transactions.has_other_pages %}
+    <div style="margin-top: 20px; text-align: center;">
+        {% if transactions.has_previous %}
+        <a href="?page={{ transactions.previous_page_number }}" class="btn btn-secondary">Previous</a>
+        {% endif %}
+        <span style="margin: 0 15px;">Page {{ transactions.number }} of {{ transactions.paginator.num_pages }}</span>
+        {% if transactions.has_next %}
+        <a href="?page={{ transactions.next_page_number }}" class="btn btn-secondary">Next</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="text-muted">No transactions for this account yet.</p>
+    {% endif %}
+</div>
+
+{% if transfers_in %}
+<div class="card">
+    <h2>Recent Transfers In</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 100px;">Date</th>
+                <th>From Account</th>
+                <th>Description</th>
+                <th style="width: 100px; text-align: right;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in transfers_in %}
+            <tr>
+                <td>{{ tx.transaction_date|date:"M d, Y" }}</td>
+                <td>{{ tx.account.name }}</td>
+                <td>
+                    <a href="{% url 'finance:transaction_detail' tx.id %}">{{ tx.description|truncatewords:8 }}</a>
+                </td>
+                <td style="text-align: right; color: #27ae60;">
+                    +${{ tx.amount|floatformat:2 }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
