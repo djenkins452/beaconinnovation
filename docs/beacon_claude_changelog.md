@@ -6,6 +6,35 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-01-09
 
+### Phase 13: Audit Log Viewer
+- Implemented audit log viewing with comprehensive filtering
+- Files created:
+  - `finance/templates/finance/audit_log_list.html` - List view with filtering and pagination
+  - `finance/templates/finance/audit_log_detail.html` - Detail view with field changes
+  - `finance/tests/test_audit_log_views.py` - 26 tests for audit log UI functionality
+- Files modified:
+  - `finance/views.py` - Added audit_log_list and audit_log_detail views
+  - `finance/urls.py` - Added audit log routes
+- Views:
+  - `audit_log_list` - Paginated list with filters for model, action, user, date range, search
+  - `audit_log_detail` - Detail view showing before/after field changes
+- Filter Features:
+  - Filter by model name (Transaction, Account, Category, etc.)
+  - Filter by action (create, update, delete)
+  - Filter by user
+  - Filter by date range
+  - Search in object representation
+  - All filters can be combined
+- UI Features:
+  - Stats showing total logs and today's logs
+  - Color-coded action badges (green=create, blue=update, red=delete)
+  - Pagination (50 per page)
+  - Before/after comparison for updates
+  - Raw JSON data display
+  - IP address and user agent tracking
+- Tests: 26 new tests (443 total now passing)
+- Notes: Phase 13 complete.
+
 ### Phase 12: Tax Alerts UI
 - Implemented tax alert viewing and acknowledgment functionality
 - Files created:

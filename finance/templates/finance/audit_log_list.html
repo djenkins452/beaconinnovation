@@ -1,0 +1,128 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Audit Logs{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Audit Logs</h1>
+        <div>
+            <span class="text-muted">Total: {{ total_logs }} | Today: {{ today_logs }}</span>
+        </div>
+    </div>
+
+    <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <p style="margin: 0; color: #1565c0;">
+            <strong>About Audit Logs:</strong> This is an immutable record of all changes made to financial data.
+            Audit logs cannot be modified or deleted.
+        </p>
+    </div>
+
+    <!-- Filters -->
+    <form method="get" style="margin-bottom: 20px;">
+        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="model">Model</label>
+                <select name="model" id="model" class="form-control" style="width: auto;">
+                    <option value="">All Models</option>
+                    {% for name in model_names %}
+                    <option value="{{ name }}" {% if model_filter == name %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="action">Action</label>
+                <select name="action" id="action" class="form-control" style="width: auto;">
+                    <option value="">All Actions</option>
+                    <option value="create" {% if action_filter == 'create' %}selected{% endif %}>Create</option>
+                    <option value="update" {% if action_filter == 'update' %}selected{% endif %}>Update</option>
+                    <option value="delete" {% if action_filter == 'delete' %}selected{% endif %}>Delete</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="user">User</label>
+                <select name="user" id="user" class="form-control" style="width: auto;">
+                    <option value="">All Users</option>
+                    {% for u in users %}
+                    <option value="{{ u.id }}" {% if user_filter == u.id|stringformat:"s" %}selected{% endif %}>{{ u.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="date_from">From</label>
+                <input type="date" name="date_from" id="date_from" class="form-control" value="{{ date_from }}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="date_to">To</label>
+                <input type="date" name="date_to" id="date_to" class="form-control" value="{{ date_to }}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="search">Search</label>
+                <input type="text" name="search" id="search" class="form-control" placeholder="Search object..." value="{{ search }}">
+            </div>
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a href="{% url 'finance:audit_log_list' %}" class="btn btn-secondary">Clear</a>
+        </div>
+    </form>
+
+    {% if page_obj %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date/Time</th>
+                <th>Action</th>
+                <th>Model</th>
+                <th>Object</th>
+                <th>User</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in page_obj %}
+            <tr>
+                <td>
+                    <div>{{ log.created_at|date:"M d, Y" }}</div>
+                    <div class="text-muted" style="font-size: 12px;">{{ log.created_at|time:"g:i:s A" }}</div>
+                </td>
+                <td>
+                    <span class="badge" style="background-color:
+                        {% if log.action == 'create' %}#27ae60
+                        {% elif log.action == 'update' %}#3498db
+                        {% else %}#e74c3c{% endif %}; color: white;">
+                        {{ log.get_action_display }}
+                    </span>
+                </td>
+                <td>{{ log.model_name }}</td>
+                <td>{{ log.object_repr|truncatechars:50 }}</td>
+                <td>{{ log.user.username|default:"System" }}</td>
+                <td>
+                    <a href="{% url 'finance:audit_log_detail' log.id %}" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <div class="pagination">
+        {% if page_obj.has_previous %}
+        <a href="?page=1{% if model_filter %}&model={{ model_filter }}{% endif %}{% if action_filter %}&action={{ action_filter }}{% endif %}{% if user_filter %}&user={{ user_filter }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if search %}&search={{ search }}{% endif %}">&laquo; First</a>
+        <a href="?page={{ page_obj.previous_page_number }}{% if model_filter %}&model={{ model_filter }}{% endif %}{% if action_filter %}&action={{ action_filter }}{% endif %}{% if user_filter %}&user={{ user_filter }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if search %}&search={{ search }}{% endif %}">Previous</a>
+        {% endif %}
+
+        <span class="current">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </span>
+
+        {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}{% if model_filter %}&model={{ model_filter }}{% endif %}{% if action_filter %}&action={{ action_filter }}{% endif %}{% if user_filter %}&user={{ user_filter }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if search %}&search={{ search }}{% endif %}">Next</a>
+        <a href="?page={{ page_obj.paginator.num_pages }}{% if model_filter %}&model={{ model_filter }}{% endif %}{% if action_filter %}&action={{ action_filter }}{% endif %}{% if user_filter %}&user={{ user_filter }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if search %}&search={{ search }}{% endif %}">Last &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="text-muted">No audit logs found{% if model_filter or action_filter or user_filter or date_from or date_to or search %} matching your filters{% endif %}.</p>
+    {% endif %}
+</div>
+{% endblock %}

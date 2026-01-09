@@ -15,7 +15,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_GET
 
-from .models import Receipt, Transaction, Category, Account, CSVImport, TaxAlert, RecurringTransaction
+from .models import Receipt, Transaction, Category, Account, CSVImport, TaxAlert, RecurringTransaction, AuditLog
 from .forms import validate_receipt_file, TransactionForm, TransactionFilterForm, AccountForm, CategoryForm, RecurringTransactionForm
 from .ocr import process_receipt_image, is_tesseract_available, OCRError
 from .importers import AmexCSVParser, CSVImporter, validate_csv_file
@@ -1949,3 +1949,121 @@ def alert_calculate(request):
         )
 
     return redirect('finance:alert_detail', alert_id=alert.id)
+
+
+# =============================================================================
+# Audit Log Views (Phase 13)
+# =============================================================================
+
+@login_required
+def audit_log_list(request):
+    """
+    List audit logs with filtering.
+
+    GET /finance/audit-logs/
+
+    Query params:
+    - model: Filter by model name
+    - action: Filter by action (create, update, delete)
+    - user: Filter by user ID
+    - date_from: Filter from date (YYYY-MM-DD)
+    - date_to: Filter to date (YYYY-MM-DD)
+    - search: Search in object_repr
+    """
+    logs = AuditLog.objects.select_related('user').all()
+
+    # Get filter values
+    model_filter = request.GET.get('model', '')
+    action_filter = request.GET.get('action', '')
+    user_filter = request.GET.get('user', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    search = request.GET.get('search', '')
+
+    # Apply filters
+    if model_filter:
+        logs = logs.filter(model_name=model_filter)
+
+    if action_filter:
+        logs = logs.filter(action=action_filter)
+
+    if user_filter:
+        logs = logs.filter(user_id=user_filter)
+
+    if date_from:
+        try:
+            from_date = date.fromisoformat(date_from)
+            logs = logs.filter(created_at__date__gte=from_date)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            to_date = date.fromisoformat(date_to)
+            logs = logs.filter(created_at__date__lte=to_date)
+        except ValueError:
+            pass
+
+    if search:
+        logs = logs.filter(object_repr__icontains=search)
+
+    # Get distinct model names and users for filter dropdowns
+    model_names = AuditLog.objects.values_list('model_name', flat=True).distinct().order_by('model_name')
+
+    from django.contrib.auth.models import User
+    users = User.objects.filter(
+        id__in=AuditLog.objects.values_list('user_id', flat=True).distinct()
+    ).order_by('username')
+
+    # Paginate
+    paginator = Paginator(logs, 50)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    # Stats
+    total_logs = AuditLog.objects.count()
+    today_logs = AuditLog.objects.filter(created_at__date=date.today()).count()
+
+    return render(request, 'finance/audit_log_list.html', {
+        'page_obj': page_obj,
+        'model_names': model_names,
+        'users': users,
+        'model_filter': model_filter,
+        'action_filter': action_filter,
+        'user_filter': user_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'search': search,
+        'total_logs': total_logs,
+        'today_logs': today_logs,
+    })
+
+
+@login_required
+def audit_log_detail(request, log_id):
+    """
+    View audit log details.
+
+    GET /finance/audit-logs/<id>/
+    """
+    log = get_object_or_404(AuditLog.objects.select_related('user'), pk=log_id)
+
+    # Parse changes JSON for display
+    changes = log.changes or {}
+    before_values = changes.get('before', {})
+    after_values = changes.get('after', {})
+
+    # Combine into a list of field changes
+    field_changes = []
+    all_fields = set(before_values.keys()) | set(after_values.keys())
+    for field in sorted(all_fields):
+        field_changes.append({
+            'field': field,
+            'before': before_values.get(field, '-'),
+            'after': after_values.get(field, '-'),
+        })
+
+    return render(request, 'finance/audit_log_detail.html', {
+        'log': log,
+        'field_changes': field_changes,
+    })

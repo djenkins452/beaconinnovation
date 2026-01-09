@@ -70,6 +70,10 @@ urlpatterns = [
     path('alerts/<uuid:alert_id>/acknowledge/', views.alert_acknowledge, name='alert_acknowledge'),
     path('alerts/<uuid:alert_id>/unacknowledge/', views.alert_unacknowledge, name='alert_unacknowledge'),
 
+    # Audit Logs (Phase 13)
+    path('audit-logs/', views.audit_log_list, name='audit_log_list'),
+    path('audit-logs/<uuid:log_id>/', views.audit_log_detail, name='audit_log_detail'),
+
     # API endpoints
     path('api/ocr/status/', views.check_tesseract_status, name='tesseract_status'),
     path('api/vendor-suggest/', views.vendor_suggest, name='vendor_suggest'),

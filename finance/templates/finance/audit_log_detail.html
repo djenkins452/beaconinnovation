@@ -1,0 +1,131 @@
+{% extends "finance/base.html" %}
+
+{% block title %}Audit Log Detail{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+        <div>
+            <h1>Audit Log Detail</h1>
+            <p class="text-muted">{{ log.created_at|date:"F d, Y" }} at {{ log.created_at|time:"g:i:s A" }}</p>
+        </div>
+        <div>
+            <span class="badge" style="background-color:
+                {% if log.action == 'create' %}#27ae60
+                {% elif log.action == 'update' %}#3498db
+                {% else %}#e74c3c{% endif %}; color: white; font-size: 14px; padding: 6px 12px;">
+                {{ log.get_action_display }}
+            </span>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 40px; margin-bottom: 30px;">
+        <div style="flex: 1;">
+            <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">Summary</h3>
+            <table style="width: 100%;">
+                <tr>
+                    <td style="padding: 8px 0; color: #666; width: 30%;">Action</td>
+                    <td style="padding: 8px 0;">{{ log.get_action_display }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">Model</td>
+                    <td style="padding: 8px 0;">{{ log.model_name }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">Object ID</td>
+                    <td style="padding: 8px 0;"><code style="font-size: 12px;">{{ log.object_id }}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">Object</td>
+                    <td style="padding: 8px 0;">{{ log.object_repr }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">User</td>
+                    <td style="padding: 8px 0;">{{ log.user.username|default:"System" }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">Timestamp</td>
+                    <td style="padding: 8px 0;">{{ log.created_at|date:"M d, Y g:i:s A" }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <div style="flex: 1;">
+            <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">Request Info</h3>
+            <table style="width: 100%;">
+                <tr>
+                    <td style="padding: 8px 0; color: #666; width: 30%;">IP Address</td>
+                    <td style="padding: 8px 0;">{{ log.ip_address|default:"Not recorded" }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; color: #666;">User Agent</td>
+                    <td style="padding: 8px 0; word-break: break-word;">{{ log.user_agent|default:"Not recorded"|truncatechars:100 }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    {% if field_changes %}
+    <div>
+        <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">Changes</h3>
+
+        {% if log.action == 'create' %}
+        <p class="text-muted" style="margin-bottom: 15px;">New record created with the following values:</p>
+        {% elif log.action == 'delete' %}
+        <p class="text-muted" style="margin-bottom: 15px;">Record deleted. Previous values:</p>
+        {% else %}
+        <p class="text-muted" style="margin-bottom: 15px;">The following fields were modified:</p>
+        {% endif %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    {% if log.action == 'update' %}
+                    <th>Before</th>
+                    <th>After</th>
+                    {% elif log.action == 'create' %}
+                    <th>Value</th>
+                    {% else %}
+                    <th>Value</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for change in field_changes %}
+                <tr>
+                    <td><strong>{{ change.field }}</strong></td>
+                    {% if log.action == 'update' %}
+                    <td style="background-color: #ffebee; color: #c62828;">
+                        {% if change.before == '-' %}<em class="text-muted">empty</em>{% else %}{{ change.before }}{% endif %}
+                    </td>
+                    <td style="background-color: #e8f5e9; color: #2e7d32;">
+                        {% if change.after == '-' %}<em class="text-muted">empty</em>{% else %}{{ change.after }}{% endif %}
+                    </td>
+                    {% elif log.action == 'create' %}
+                    <td>{{ change.after }}</td>
+                    {% else %}
+                    <td>{{ change.before }}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div>
+        <h3 style="border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px;">Changes</h3>
+        <p class="text-muted">No detailed changes recorded.</p>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 30px; padding: 20px; background-color: #f5f5f5; border-radius: 8px;">
+        <h3 style="margin-top: 0;">Raw Data</h3>
+        <pre style="background-color: #fff; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">{{ log.changes|default:"{}"|pprint }}</pre>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <a href="{% url 'finance:audit_log_list' %}">&larr; Back to Audit Logs</a>
+    </div>
+</div>
+{% endblock %}
