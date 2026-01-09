@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -135,5 +136,15 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'wlj:login'
 
 # Claude API Key for admin console task management
-import os
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', 'beacon-claude-api-key-replace-me-with-real-key')
+
+# Cloudinary configuration (shared with WLJ)
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
+
+# Finance app settings
+FINANCE_TAX_ALERT_THRESHOLD = int(os.environ.get('FINANCE_TAX_ALERT_THRESHOLD', '1000'))
+FINANCE_RECEIPT_MAX_SIZE_MB = int(os.environ.get('FINANCE_RECEIPT_MAX_SIZE_MB', '10'))
+FINANCE_CLOUDINARY_FOLDER = 'beacon-innovations/receipts'
+FINANCE_ALLOWED_RECEIPT_TYPES = ['pdf', 'jpg', 'jpeg', 'png']

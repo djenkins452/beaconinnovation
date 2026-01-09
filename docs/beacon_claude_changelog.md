@@ -4,6 +4,58 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-01-09
+
+### Phase 5: Receipt OCR Processing
+- Implemented Tesseract OCR integration for receipt text extraction
+- Files created:
+  - `finance/ocr.py` - OCR processor with image preprocessing (grayscale, contrast, threshold)
+  - `finance/parsers.py` - Receipt parser for vendor, amount, date extraction
+  - `finance/tests/test_ocr.py` - 33 tests for OCR functionality
+- Files modified:
+  - `finance/views.py` - Added OCR processing endpoints
+  - `requirements.txt` - Added pytesseract and Pillow dependencies
+- API Endpoints:
+  - `POST /finance/receipts/<id>/ocr/` - Process OCR on uploaded receipt
+  - `POST /finance/receipts/<id>/ocr/rerun/` - Re-run OCR processing
+  - `GET /finance/receipts/<id>/ocr/status/` - Get OCR status/results
+  - `GET /finance/api/ocr/status/` - Check Tesseract availability
+- Features:
+  - Image preprocessing: grayscale conversion, contrast enhancement, threshold
+  - Amount extraction: Total patterns, dollar signs, USD suffix
+  - Date extraction: MM/DD/YYYY, YYYY-MM-DD, month names, abbreviations
+  - Vendor extraction: First line fallback, merchant/store labels
+  - Confidence scoring: 0.0-1.0 based on Tesseract confidence
+- Tests: 33 new tests
+- Notes: Phase 5 complete.
+
+### Phase 4: Receipt Upload & Storage
+- Implemented receipt upload with file validation and local storage
+- Files created:
+  - `finance/forms.py` - ReceiptUploadForm with file type/size validation
+  - `finance/urls.py` - URL configuration for finance app
+  - `finance/tests/test_receipts.py` - 28 tests for receipt functionality
+- Files modified:
+  - `finance/views.py` - Added upload, view, download, delete endpoints
+  - `beaconinnovation/urls.py` - Added finance app URL include
+  - `beaconinnovation/settings.py` - Added Cloudinary and finance settings
+- API Endpoints:
+  - `POST /finance/transactions/<id>/receipts/upload/` - Upload receipt (multipart)
+  - `GET /finance/transactions/<id>/receipts/` - List transaction receipts
+  - `GET /finance/receipts/<id>/` - Get receipt info
+  - `GET /finance/receipts/<id>/view/` - View receipt inline
+  - `GET /finance/receipts/<id>/download/` - Download receipt
+  - `POST /finance/receipts/<id>/delete/` - Delete receipt
+- Features:
+  - File type validation (PDF, JPG, PNG)
+  - File size validation (10MB max, configurable)
+  - Inline viewing and download support
+  - Cloudinary configuration ready (env vars)
+- Tests: 28 new tests (146 total now passing)
+- Notes: Phase 4 complete. Uses local storage; Cloudinary integration requires env vars.
+
+---
+
 ## 2026-01-08
 
 ### Phase 3: Recurring Transactions & Tax Alerts
