@@ -4,6 +4,23 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-07-26
+
+### Temporary OTA Install Page for AIMS Field
+- Temporary solution to get AIMS Field (iOS) installed via over-the-air (OTA) install. Permanent deployment portal intentionally NOT built.
+- Files created:
+  - `static/downloads/install.html` - OTA install page with single "Install AIMS Field" button (itms-services:// URL)
+  - `static/downloads/manifest.plist` - OTA manifest (bundle id `com.beaconinnovation.aims.field`, version 0.2.0, title "AIMS Field", references https://beacon-innovation.com/static/downloads/AIMSField.ipa)
+  - `staticfiles/downloads/{AIMSField.ipa,install.html,manifest.plist}` - mirrored into STATIC_ROOT so WhiteNoise serves them in production even without a build-time collectstatic
+- Files modified:
+  - `beaconinnovation/settings.py` - Added `WHITENOISE_MIMETYPES` to serve `.plist` as `text/xml` (mimetypes does not recognize .plist, which otherwise defaults to application/octet-stream and can break OTA)
+- Notes:
+  - Static files served by WhiteNoise from STATIC_ROOT (`staticfiles/`, committed to repo). STATIC_URL is `/static/`.
+  - Verified under DEBUG=False via WSGI: both /static/downloads/AIMSField.ipa (200, octet-stream) and /static/downloads/manifest.plist (200, text/xml) are served correctly.
+  - Install URL to share: https://beacon-innovation.com/static/downloads/install.html (open in Safari on iPhone).
+
+---
+
 ## 2026-01-09
 
 ### QA Review & Security/Validation Fixes

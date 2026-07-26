@@ -125,6 +125,13 @@ STATICFILES_DIRS = ['static/']
 STATICFILES_STOREAGE = 'whitenoise.storage.CompressedManifestStaticFileStorage'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Serve the iOS OTA manifest with the content type iTunes/iOS expects.
+# (Python's mimetypes does not know .plist/.ipa, which otherwise fall back to
+#  application/octet-stream and can make itms-services OTA installs unreliable.)
+WHITENOISE_MIMETYPES = {
+    '.plist': 'text/xml',
+}
+
 # Media files (uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
