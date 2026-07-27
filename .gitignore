@@ -17,3 +17,6 @@ db.sqlite3
 .vscode/
 .idea/
 media/
+
+# Release pipeline dry-run scratch
+.release-dryrun/
