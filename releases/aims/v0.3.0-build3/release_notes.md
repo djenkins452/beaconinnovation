@@ -5,10 +5,12 @@
 - **Release Date:** July 27, 2026
 
 ## What's New
-- Tester Approval for Testing builds: certify an inventory without a CAC (clearly recorded as a TEST signature). The app now shows its current Environment (Testing / Production).
+- First public release of AIMS Field for iPhone and iPad — fully offline Army inventory verification in the field.
+- Guided inventory sessions with search across items, packets, and readiness reports.
+- On-device signature capture with a configurable, environment-driven signing workflow.
 
 ## Bug Fixes
-- Action buttons at the bottom of a screen no longer hide behind the navigation bar.
+- Bottom action controls no longer sit hidden behind the persistent tab bar.
 
 ## Known Issues
 - None reported.
