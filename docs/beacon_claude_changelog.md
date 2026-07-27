@@ -6,6 +6,13 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-07-27
 
+### Fix: Django admin crash on Python 3.14 (`'super' object has no attribute 'dicts'`)
+- **Symptom:** Opening any Django admin change list in production (reported on Product Download Portal → Products) raised `AttributeError: 'super' object has no attribute 'dicts'` while rendering.
+- **Root cause:** Not an admin/ModelAdmin bug. `runtime.txt` pinned production to **Python 3.14.0**, which Django 5.1 does not support (5.1 supports Python 3.10–3.13). On Python 3.14, `copy.copy(super())` in `django.template.context.BaseContext.__copy__` no longer returns a real `Context`, so the subsequent `duplicate.dicts = …` fails. The admin change list copies the template context while rendering result rows, triggering it. Dev never reproduced it because the dev venv runs Python 3.12. The `ProductAdmin` is a standard, unmodified `ModelAdmin` (no custom `changelist_view`/`get_queryset`/`get_changelist`/`ChangeList`/templates).
+- **Fix:** Pinned `runtime.txt` to a supported, standard-format version: `python-3.13.1` (was the malformed `python 3.14.0`, whose space instead of hyphen likely caused the builder to fall back to the latest Python, 3.14). This resolves the crash for every admin page, not just Products.
+- Files: `runtime.txt`.
+- Verified on a supported Python: Products change list opens; AIMS is editable; users can be assigned; an IPA uploads via the admin; and My Products shows AIMS to a newly assigned user with a working download. Full suite 476 passing.
+
 ### Product Download Portal — bootstrap moved to a management command
 - **Immutable migrations.** Restored `finance/migrations/0006_create_superuser.py` to its exact original committed content (from commit `90e206d`). Historical/committed migrations are treated as immutable and are no longer edited by this work.
 - **Bootstrap is now a management command, not a migration.** Added `products/management/commands/bootstrap_portal.py`. It is idempotent and safe to run on every deploy, and it:
