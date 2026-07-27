@@ -1,0 +1,61 @@
+{% extends 'products/base.html' %}
+
+{% block title %}{{ product.name }} - Beacon Downloads{% endblock %}
+
+{% block content %}
+    <a href="{% url 'products:my_products' %}" class="text-decoration-none small text-muted d-inline-block mb-3">
+        <i class="bi-chevron-left"></i> My Products
+    </a>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-4 p-md-5">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                {% if product.icon %}
+                <img class="product-icon" src="{{ product.icon.url }}" alt="{{ product.name }} icon">
+                {% else %}
+                <span class="product-icon"><i class="bi-box-seam"></i></span>
+                {% endif %}
+                <div>
+                    <h1 class="h3 mb-0">{{ product.name }}</h1>
+                </div>
+            </div>
+
+            {% if product.description %}
+            <p class="text-muted">{{ product.description|linebreaksbr }}</p>
+            {% endif %}
+
+            {% if product.current_version or product.current_build %}
+            <div class="row g-4 mb-4">
+                {% if product.current_version %}
+                <div class="col-auto">
+                    <div class="text-uppercase text-muted small fw-semibold" style="letter-spacing:.04em;">Current Version</div>
+                    <div class="fs-4">{{ product.current_version }}</div>
+                </div>
+                {% endif %}
+                {% if product.current_build %}
+                <div class="col-auto">
+                    <div class="text-uppercase text-muted small fw-semibold" style="letter-spacing:.04em;">Current Build</div>
+                    <div class="fs-4">{{ product.current_build }}</div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <hr class="my-4">
+
+            {% if product.is_available %}
+            <a class="btn btn-primary btn-lg" href="{% url 'products:download' product.slug %}">
+                <i class="bi-download me-2"></i>Download Latest Version
+            </a>
+            <div class="text-muted small mt-2">
+                {{ product.filename }}{% if product.file_extension %} &middot; {{ product.file_extension|upper }}{% endif %}
+            </div>
+            {% else %}
+            <button class="btn btn-secondary btn-lg" disabled>
+                <i class="bi-download me-2"></i>Download Latest Version
+            </button>
+            <div class="text-muted small mt-2">No download is currently available for this product.</div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

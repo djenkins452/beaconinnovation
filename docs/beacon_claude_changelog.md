@@ -6,6 +6,39 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-07-26
 
+### Secure Product Download Portal (Phase 1)
+- New `products` app: authenticated portal for distributing the latest build of each Beacon product to authorized users only. Reuses Django's built-in auth (no custom auth system).
+- User workflow: log in → My Products (only authorized products) → product page → Download Latest Version.
+- Files created:
+  - `products/models.py` - `Product` model (name, slug, description, current_version, icon, download_file, download_enabled) + `authorized_users` M2M to `auth.User`. Any file type (IPA/APK/EXE/DMG/ZIP/…). Uploading a new build replaces the previous file in place.
+  - `products/views.py` - login/logout, My Products, product detail, authenticated download (streams via `FileResponse` as attachment; storage URL never exposed; authorization re-checked per request; unauthorized → 404, not 403).
+  - `products/urls.py` - routes under `/products/`; wires Django's built-in `PasswordChangeView`/`PasswordChangeDoneView` for changing the temp password after first login.
+  - `products/admin.py` - create products, assign users (`filter_horizontal`), upload/replace build, enable/disable download.
+  - `products/templates/products/{base,login,my_products,product_detail,password_change,password_change_done}.html` - Bootstrap 5, matches site theme (`#f4623a`).
+  - `products/tests.py` - 12 tests (authorization, 404 for unauthorized/anonymous, download streaming, disabled-download, slug autogen, replace-build-deletes-old-file).
+- Files modified:
+  - `beaconinnovation/settings.py` - added `products` to `INSTALLED_APPS`.
+  - `beaconinnovation/urls.py` - added `path('products/', include('products.urls'))`.
+  - `website/templates/home.html` - added "Downloads" nav link to `/products/`.
+- Migrations:
+  - `products/0001_initial` - Product model.
+  - `products/0002_bootstrap_portal` - ensures admin `dannyjenkins71@gmail.com` exists (temp password `Beacon!Temp2026`, created only if missing — never resets an existing password), creates the `AIMS` product, and grants the admin access.
+- Tests: 12 passing (`python manage.py test products`).
+- Notes:
+  - Downloads use local media storage (`FileField`) + authenticated view, consistent with finance receipts. On Railway's ephemeral disk, uploaded builds do not survive redeploys; migrating product builds to Cloudinary (as finance receipts already do) is a natural future step.
+  - Out of scope by design (future, no redesign needed): release notes, version history, beta channels, organizations, licensing, analytics.
+  - Admin must change the temporary password after first login via `/products/password/change/` or the Django admin.
+
+### Product Download Portal — Phase 1 refinements
+- Follow-up to the portal above. No scope expansion.
+- **No passwords in source control.** Rewrote `products/0002_bootstrap_portal` to remove the hardcoded temporary password. When the admin account is missing, the temp password is either taken from the `BEACON_ADMIN_PASSWORD` env var or randomly generated (`secrets.token_urlsafe`) and printed **once** to the deploy console/log. If the admin already exists, it is left completely untouched.
+- **Forced password change on first login (simple).** A newly bootstrapped admin is added to the built-in Django group `portal_must_change_password`; portal views redirect such users to the change-password page until they set a new password (flag cleared on success via `PortalPasswordChangeView`). No MFA, email verification, security questions, or reset workflows — reuses Django's built-in password-change view.
+- **Build info on product page.** Added `Product.current_build`; the product page now shows labeled "Current Version" and "Current Build" above the download button (informational during testing, not release management).
+- **Navigation label.** Home nav link now reads "My Products" (was "Downloads").
+- Files modified: `products/models.py`, `products/views.py`, `products/urls.py`, `products/admin.py`, `products/migrations/0002_bootstrap_portal.py`, `products/templates/products/product_detail.html`, `products/tests.py`, `website/templates/home.html`.
+- Migrations: `products/0003_product_current_build_alter_product_current_version` (adds `current_build`).
+- Tests: passing (`python manage.py test products`), including new coverage for the forced-change gate and build display.
+
 ### Temporary OTA Install Page for AIMS Field
 - Temporary solution to get AIMS Field (iOS) installed via over-the-air (OTA) install. Permanent deployment portal intentionally NOT built.
 - Files created:

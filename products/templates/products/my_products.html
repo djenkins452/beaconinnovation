@@ -1,0 +1,48 @@
+{% extends 'products/base.html' %}
+
+{% block title %}My Products - Beacon Downloads{% endblock %}
+
+{% block content %}
+    <div class="mb-4">
+        <h1 class="h3 mb-1">Welcome{% if user.get_full_name %}, {{ user.get_full_name }}{% elif user.get_username %}, {{ user.get_username }}{% endif %}</h1>
+        <p class="text-muted mb-0">My Products</p>
+    </div>
+
+    {% if products %}
+    <div class="row g-3">
+        {% for product in products %}
+        <div class="col-12 col-md-6">
+            <a class="text-decoration-none text-dark" href="{% url 'products:detail' product.slug %}">
+                <div class="card product-card h-100 border-0 shadow-sm">
+                    <div class="card-body d-flex align-items-center gap-3">
+                        {% if product.icon %}
+                        <img class="product-icon" src="{{ product.icon.url }}" alt="{{ product.name }} icon">
+                        {% else %}
+                        <span class="product-icon"><i class="bi-box-seam"></i></span>
+                        {% endif %}
+                        <div class="flex-grow-1">
+                            <h2 class="h5 mb-1">{{ product.name }}</h2>
+                            {% if product.current_version %}
+                            <div class="text-muted small">Version {{ product.current_version }}</div>
+                            {% endif %}
+                            {% if not product.is_available %}
+                            <span class="badge bg-secondary mt-1">Download unavailable</span>
+                            {% endif %}
+                        </div>
+                        <i class="bi-chevron-right text-muted"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card border-0 shadow-sm">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi-box-seam fs-1 d-block mb-3"></i>
+            <p class="mb-0">You don't have access to any products yet.</p>
+            <p class="small mb-0">Contact an administrator if you believe this is a mistake.</p>
+        </div>
+    </div>
+    {% endif %}
+{% endblock %}
