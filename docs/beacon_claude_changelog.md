@@ -13,6 +13,14 @@ This file tracks all changes made by Claude Code during development.
 - Files: `runtime.txt`.
 - Verified on a supported Python: Products change list opens; AIMS is editable; users can be assigned; an IPA uploads via the admin; and My Products shows AIMS to a newly assigned user with a working download. Full suite 476 passing.
 
+#### Runtime verification (before deploy) + verification tooling
+- **Build-config audit:** the repo contains **no** Dockerfile, `nixpacks.toml`, `railway.json/toml`, `.python-version` (before this change), `Pipfile`, or `pyproject.toml` — nothing overrides the Python version except `runtime.txt`. Correct Railway/Heroku format is `python-X.Y.Z` (hyphen).
+- **Evidence Railway honors runtime.txt here:** production's `runtime.txt` had read `python 3.14.0` since 2025-12-14 (commit `b468839`) and production exhibited the Python-3.14 bug — i.e. the builder read that file and installed 3.14 even with the malformed space. So the corrected `python-3.13.1` will resolve to Python 3.13.x. (Note: builders pin major.minor and pick the latest available patch, so expect 3.13.x, not necessarily exactly 3.13.1.)
+- **Caveat (not verifiable from the repo):** a Railway dashboard environment variable (e.g. `NIXPACKS_PYTHON_VERSION`) or a custom build/start command could still override this. Confirmed empirically after deploy via the health endpoint below.
+- Added `.python-version` (`3.13`) as a builder-agnostic, belt-and-suspenders pin (honored by both Nixpacks and Railpack).
+- Added an unauthenticated `GET /healthz/` endpoint that reports `python` version and runs `copy.copy(Context(...))` — the exact code path that fails on Python 3.14 — returning `context_copy_ok`. This allows the fix to be verified in production without an authenticated admin session.
+- Files: `.python-version` (new), `website/views.py`, `website/urls.py`, `website/tests.py`. Full suite 477 passing.
+
 ### Product Download Portal — bootstrap moved to a management command
 - **Immutable migrations.** Restored `finance/migrations/0006_create_superuser.py` to its exact original committed content (from commit `90e206d`). Historical/committed migrations are treated as immutable and are no longer edited by this work.
 - **Bootstrap is now a management command, not a migration.** Added `products/management/commands/bootstrap_portal.py`. It is idempotent and safe to run on every deploy, and it:
