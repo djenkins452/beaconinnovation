@@ -513,6 +513,16 @@ This file tracks all changes made by Claude Code during development.
 - Created: `docs/beacon_claude_deploy.md` (deployment guide)
 - Notes: Initial documentation setup, ready for Phase 1 development
 
+## 2026-07-27
+
+### Publish AIMS Field release 0.3.0 (Build 2)
+- Files: `static/downloads/AIMSField.ipa`, `static/downloads/manifest.plist`, `static/downloads/install.html`
+- Synced from IPA (source of truth): Version 0.3.0, Build 2, Bundle ID `com.beaconinnovation.aims.field`
+- manifest.plist `bundle-version` 0.2.0 → 0.3.0; install.html now shows "Version 0.3.0 (Build 2)"
+- Migrations: none
+- Tests: none
+- Notes: OTA install deployment only, no application code changes
+
 ---
 
 <!-- 
