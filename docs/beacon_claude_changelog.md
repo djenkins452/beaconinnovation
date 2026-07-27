@@ -6,6 +6,15 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-07-27
 
+### Publish AIMS build 0.3.0 (Build 3) to the Product Download Portal
+- Published the newest signed AIMS production export to the portal and OTA static endpoint. No release-framework / `/release` / `distribution` work.
+- IPA: `AIMSField.ipa`, 1,137,725 bytes, bundle `com.beaconinnovation.aims.field`, **version 0.3.0**, **build 3** (signed: embedded.mobileprovision + `_CodeSignature`).
+- `products/management/commands/bootstrap_portal.py`: added an idempotent step that attaches the committed `static/downloads/AIMSField.ipa` to the existing **AIMS** product's download and sets Current Version / Current Build from the IPA's own `Info.plist`. Runs in the existing deploy chain, stores under a stable name (`product_downloads/AIMSField.ipa`), and re-attaches when the stored file is missing or differs — so it survives Railway's ephemeral filesystem without needing an admin upload. No new product created; replaces the previous file.
+- Updated committed static artifacts (served by WhiteNoise from `staticfiles/`, no collectstatic on deploy): `static/downloads/AIMSField.ipa` + `staticfiles/downloads/AIMSField.ipa` (0.2.0/build 2 → 0.3.0/build 3), `install.html` "Build 2" → "Build 3". OTA `manifest.plist` already correct (bundle-identifier `com.beaconinnovation.aims.field`, bundle-version 0.3.0, url `/static/downloads/AIMSField.ipa`).
+- The admin account `dannyjenkins71@gmail.com` is granted AIMS access by the same command.
+- Verified on dev: Login → My Products → AIMS → Download Latest Version returns HTTP 200, `attachment; filename="AIMSField.ipa"`, 1,137,725 bytes; downloaded bytes decode to bundle/version/build 0.3.0/3. Authorization intact (anonymous → 302 login; unauthorized user → AIMS hidden from My Products and 404 on detail/download). Full suite 478 passing.
+- Files: `products/management/commands/bootstrap_portal.py`, `products/tests.py`, `static/downloads/{AIMSField.ipa,install.html}`, `staticfiles/downloads/{AIMSField.ipa,install.html,manifest.plist}`.
+
 ### Fix: Django admin crash on Python 3.14 (`'super' object has no attribute 'dicts'`)
 - **Symptom:** Opening any Django admin change list in production (reported on Product Download Portal → Products) raised `AttributeError: 'super' object has no attribute 'dicts'` while rendering.
 - **Root cause:** Not an admin/ModelAdmin bug. `runtime.txt` pinned production to **Python 3.14.0**, which Django 5.1 does not support (5.1 supports Python 3.10–3.13). On Python 3.14, `copy.copy(super())` in `django.template.context.BaseContext.__copy__` no longer returns a real `Context`, so the subsequent `duplicate.dicts = …` fails. The admin change list copies the template context while rendering result rows, triggering it. Dev never reproduced it because the dev venv runs Python 3.12. The `ProductAdmin` is a standard, unmodified `ModelAdmin` (no custom `changelist_view`/`get_queryset`/`get_changelist`/`ChangeList`/templates).

@@ -13,15 +13,26 @@ that must NOT live in migrations (which are immutable once committed):
         login (portal_must_change_password group).
   * Ensures the initial AIMS product exists.
   * Grants the administrator access to AIMS.
+  * Publishes the current AIMS build: attaches the committed IPA
+    (static/downloads/AIMSField.ipa) to the AIMS product's download and sets
+    Current Version / Current Build from the IPA's own metadata. This is
+    idempotent and also survives Railway's ephemeral filesystem (the committed
+    IPA is the source of truth, re-attached whenever the stored file is missing
+    or differs).
 
 No password is ever stored in source control.
 
     python manage.py bootstrap_portal
 """
+import os
+import plistlib
 import secrets
+import zipfile
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.files import File
 from django.core.management.base import BaseCommand
 
 from products.models import Product
@@ -31,13 +42,31 @@ ADMIN_USERNAME = 'dannyjenkins71@gmail.com'
 ADMIN_EMAIL = 'dannyjenkins71@gmail.com'
 AIMS_SLUG = 'aims'
 
+# The committed, signed AIMS build that the portal publishes. Kept in the
+# static tree (also served over-the-air at /static/downloads/AIMSField.ipa).
+AIMS_IPA_PATH = os.path.join(settings.BASE_DIR, 'static', 'downloads', 'AIMSField.ipa')
+AIMS_STORED_NAME = 'product_downloads/AIMSField.ipa'
+
+
+def read_ipa_metadata(ipa_path):
+    """Return {'version', 'build', 'bundle_id'} from an IPA's Info.plist."""
+    with zipfile.ZipFile(ipa_path) as zf:
+        info_name = next(
+            name for name in zf.namelist()
+            if name.startswith('Payload/') and name.endswith('.app/Info.plist')
+        )
+        plist = plistlib.loads(zf.read(info_name))
+    return {
+        'version': plist.get('CFBundleShortVersionString', ''),
+        'build': plist.get('CFBundleVersion', ''),
+        'bundle_id': plist.get('CFBundleIdentifier', ''),
+    }
+
 
 class Command(BaseCommand):
-    help = "Bootstrap the download portal (admin, AIMS product) for new deployments."
+    help = "Bootstrap the download portal (admin, AIMS product, current build)."
 
     def handle(self, *args, **options):
-        import os
-
         User = get_user_model()
 
         # 1. Administrator: create only if missing; never touch an existing one.
@@ -85,4 +114,50 @@ class Command(BaseCommand):
 
         # 3. Grant the administrator access to AIMS.
         aims.authorized_users.add(admin)
+
+        # 4. Publish the current AIMS build (idempotent; ephemeral-fs safe).
+        self._publish_aims_build(aims)
+
         self.stdout.write(self.style.SUCCESS('Portal bootstrap complete.'))
+
+    def _publish_aims_build(self, aims):
+        if not os.path.exists(AIMS_IPA_PATH):
+            self.stdout.write(self.style.WARNING(
+                f'AIMS IPA not found at {AIMS_IPA_PATH}; skipping build publish.'))
+            return
+
+        src_size = os.path.getsize(AIMS_IPA_PATH)
+        storage = aims.download_file.storage
+        stored_name = aims.download_file.name
+
+        # Up to date only if the stored file physically exists and matches size.
+        up_to_date = False
+        if stored_name:
+            try:
+                up_to_date = storage.exists(stored_name) and aims.download_file.size == src_size
+            except Exception:
+                up_to_date = False
+
+        if up_to_date:
+            self.stdout.write(
+                f'AIMS build already published: v{aims.current_version} '
+                f'build {aims.current_build} ({src_size} bytes).')
+            return
+
+        meta = read_ipa_metadata(AIMS_IPA_PATH)
+
+        # Store under a stable name so the download keeps the clean filename.
+        if storage.exists(AIMS_STORED_NAME):
+            storage.delete(AIMS_STORED_NAME)
+        with open(AIMS_IPA_PATH, 'rb') as fh:
+            saved_name = storage.save(AIMS_STORED_NAME, File(fh))
+
+        aims.download_file.name = saved_name
+        aims.current_version = meta['version']
+        aims.current_build = meta['build']
+        aims.download_enabled = True
+        aims.save()
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Published AIMS build: v{meta['version']} build {meta['build']} "
+            f"({src_size} bytes, {meta['bundle_id']})"))

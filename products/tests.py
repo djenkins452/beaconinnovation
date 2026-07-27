@@ -10,13 +10,14 @@ import tempfile
 from io import StringIO
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .management.commands.bootstrap_portal import ADMIN_USERNAME, AIMS_SLUG
+from .management.commands.bootstrap_portal import ADMIN_USERNAME, AIMS_SLUG, read_ipa_metadata
 from .models import Product
 from .views import PASSWORD_CHANGE_REQUIRED_GROUP
 
@@ -234,6 +235,18 @@ class BootstrapCommandTests(TestCase):
         self._run()
         self._run()  # must not raise or duplicate
         self.assertEqual(Product.objects.filter(slug=AIMS_SLUG).count(), 1)
+
+    def test_publishes_committed_aims_build(self):
+        self._run()
+        aims = Product.objects.get(slug=AIMS_SLUG)
+        self.assertTrue(aims.is_available)
+        self.assertEqual(aims.filename, 'AIMSField.ipa')
+        # Version/build are read from the committed IPA's own metadata.
+        expected = read_ipa_metadata(
+            os.path.join(settings.BASE_DIR, 'static', 'downloads', 'AIMSField.ipa'))
+        self.assertEqual(aims.current_version, expected['version'])
+        self.assertEqual(aims.current_build, expected['build'])
+        self.assertEqual(expected['bundle_id'], 'com.beaconinnovation.aims.field')
 
     def test_env_var_password_is_used(self):
         User.objects.filter(username=ADMIN_USERNAME).delete()
