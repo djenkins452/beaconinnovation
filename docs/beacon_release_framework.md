@@ -23,8 +23,28 @@ Inside any Beacon product repo:
 2. Release Testing → **Export IPA** → drop it in `releases/pending/`
 3. `/release`
 
-The `/release` command hands the IPA to the engine, which does everything else and
-returns the live install URL.
+### Two modes: publish (fast) and verify (authoritative)
+
+Publishing and production verification are **separate**, so a developer is never
+forced to wait 10–15 minutes for Railway unless they explicitly want end-to-end
+verification.
+
+- **`/release`** (default) — **publish**: locate the IPA, sync the manifest +
+  install portal, generate notes, archive, validate, **commit and push**, then
+  **return the instant GitHub accepts the push**. Railway deploys in the
+  background. Fast (seconds).
+- **`/release verify`** — **verify**: wait for Railway with **live progress and
+  elapsed time** (polling, stopping the moment the new build is detected), then run
+  the **complete, authoritative production validation** of the deployed build:
+  install page (HTTP 200), manifest (HTTP 200), IPA download, **SHA-256 match**,
+  bundle id, version, and legacy redirects. It never reports success unless every
+  check passes.
+
+The split removes no safety checks — it moves the long Railway wait out of the
+common path; verify remains the single authoritative production-validation path.
+All verification requests present a browser User-Agent, so a WAF that blocks
+non-browser clients cannot cause a false negative. `--dry-run` previews a publish
+with no git or deploy.
 
 ## Architecture — engine vs. configuration
 

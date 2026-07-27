@@ -32,6 +32,15 @@ from ipainfo import inspect_ipa, IPAInfo
 import templates
 
 
+# The production site sits behind a WAF that returns 403 to non-browser
+# user-agents. Every verification request presents a real browser UA so the
+# checks see what a device/browser sees (HTTP 200), never a false 403.
+BROWSER_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
+
+
 class ReleaseError(Exception):
     """Stops the pipeline immediately with a clear explanation."""
 
@@ -52,6 +61,7 @@ class ReleaseEngine:
         *,
         dry_run: bool = False,
         deploy: bool = True,
+        verify_only: bool = False,
         notes_override: Optional[ReleaseNotes] = None,
         poll_timeout: Optional[int] = None,
         poll_interval: int = 15,
@@ -63,6 +73,9 @@ class ReleaseEngine:
         self.beacon_repo = Path(beacon_repo)
         self.dry_run = dry_run
         self.deploy = deploy and not dry_run
+        # Verify mode waits for Railway and validates the ALREADY-published
+        # release; it never stages, commits, or pushes.
+        self.verify_only = verify_only
         self.notes_override = notes_override
         self.poll_timeout = poll_timeout if poll_timeout is not None else config.poll_timeout
         self.poll_interval = poll_interval
@@ -81,6 +94,9 @@ class ReleaseEngine:
         self.commit_id: Optional[str] = None
         self.archive_dir: Optional[Path] = None
         self.report_data: Dict[str, str] = {}
+        # verify-mode expectations (loaded from the published artifacts)
+        self.expected_version: Optional[str] = None
+        self.expected_bundle_id: Optional[str] = None
 
     # -- output roots (scratch in dry-run, beacon repo otherwise) --
     def _root(self) -> Path:
@@ -104,23 +120,45 @@ class ReleaseEngine:
 
     # ==================================================================
     def run(self) -> Dict[str, str]:
-        mode = "DRY RUN" if self.dry_run else ("DEPLOY" if self.deploy else "LOCAL (no deploy)")
+        """Dispatch: verify-only waits for + validates the live deployment;
+        otherwise publish (and, in default mode, stop after the push)."""
+        if self.verify_only:
+            return self.run_verify()
+        return self.run_publish()
+
+    # -- publish (default): discover → … → commit → push, then STOP ----
+    def run_publish(self) -> Dict[str, str]:
+        mode = "DRY RUN" if self.dry_run else ("PUBLISH" if self.deploy else "LOCAL (no push)")
         self._banner(f"Beacon Release — {self.cfg.display_name} [{mode}]")
-        self.step_locate()
-        self.step_inspect()
-        self.step_notes()
-        self.step_stage()
-        self.step_sync()
-        self.step_archive()
-        self.step_validate()
+        self._phase("Preparing release...")
+        self.step_locate()      # ✓ Located latest IPA
+        self.step_inspect()     # guards (bundle id / name)
+        self.step_notes()       # ✓ Generated release notes
+        self.step_stage()       # ✓ Staged IPA
+        self.step_sync()        # ✓ Updated manifest / install page
+        self.step_archive()     # ✓ Archived snapshot
+        self.step_history()     # record BEFORE the commit so it is included
+        self.step_validate()    # ✓ Consistency validated
         if self.deploy:
-            self.step_commit()
-            self.step_push()
-            self.step_verify()
+            self.step_commit()  # ✓ Commit created
+            self.step_push()    # ✓ Pushed to GitHub
         else:
-            self.log("\n[skip] deploy/verify skipped (dry-run or --no-deploy)")
-        self.step_history()
-        return self.step_report()
+            self._ok("Local publish only — commit/push skipped (dry-run or --no-deploy)")
+        data = self.step_report()
+        if self.deploy:
+            self._phase("Release published to GitHub.")
+            self.log("Railway deployment is occurring in the background.")
+            self.log('Run "/release verify" to wait for production verification.')
+        return data
+
+    # -- verify: wait for Railway + full production validation ----------
+    def run_verify(self) -> Dict[str, str]:
+        self._banner(f"Beacon Release — {self.cfg.display_name} [VERIFY]")
+        self._load_published()      # expected version/build/bundle/sha from the published artifacts
+        self._wait_for_railway()    # progress + elapsed time; stop the moment it's detected
+        self._production_validation()  # the authoritative, complete check set
+        self._phase("Release complete.")
+        return self.report_data
 
     # -- 1. locate ------------------------------------------------------
     def step_locate(self) -> None:
@@ -143,8 +181,12 @@ class ReleaseEngine:
         self.source_ipa = ipa
         self.ipa_dest_name = ipa.name
         self.source_sha = self._sha256_file(ipa)
+        # Product repo HEAD, captured now so history (written before the Beacon
+        # commit) records which product commit produced this build.
+        self.product_commit = (self._git_product("rev-parse", "HEAD", check=False) or "").strip() or None
         self.log(f"  ipa    : {self._rel(ipa, self.product_repo)}")
         self.log(f"  sha256 : {self.source_sha}")
+        self._ok("Located latest IPA")
 
     # -- 2. inspect -----------------------------------------------------
     def step_inspect(self) -> None:
@@ -169,6 +211,7 @@ class ReleaseEngine:
             raise ReleaseError(
                 f"App name mismatch: IPA CFBundleName '{ipa.app_name}' != release.yaml '{self.cfg.name}'."
             )
+        self._ok(f"Inspected IPA — v{ipa.version} (Build {ipa.build}), {ipa.bundle_id}")
 
     # -- 5. release notes (computed early; portal embeds them) ---------
     def step_notes(self) -> None:
@@ -186,6 +229,7 @@ class ReleaseEngine:
             self.log(f"  {heading}:")
             for it in (items or ["(none)"]):
                 self.log(f"    - {it}")
+        self._ok("Generated release notes")
 
     def _auto_notes(self) -> ReleaseNotes:
         subjects = self._product_commit_subjects()
@@ -247,6 +291,7 @@ class ReleaseEngine:
         if self._sha256_file(dest) != self.source_sha:
             raise ReleaseError("Staged IPA hash does not match source — copy failed.")
         self.log(f"  copied -> {self._rel(dest, self.beacon_repo)}")
+        self._ok("Staged IPA")
 
     # -- 4/6. synchronize + publish ------------------------------------
     def step_sync(self) -> None:
@@ -259,7 +304,7 @@ class ReleaseEngine:
             "PRODUCT_TITLE": title,
         })
         self._write(self.out_downloads / self.cfg.manifest_name, manifest)
-        self.log(f"  wrote {self.cfg.manifest_name} (bundle-version {self.ipa.version})")
+        self._ok("Updated manifest")
 
         icon_block = (
             f'            <img class="app-icon" src="{self._esc(self.cfg.icon)}" '
@@ -285,7 +330,7 @@ class ReleaseEngine:
             "PREVIOUS_RELEASES_SECTION": self._previous_releases_section(),
         })
         self._write(self.out_downloads / self.cfg.install_page_name, page)
-        self.log(f"  wrote {self.cfg.install_page_name} (release portal)")
+        self._ok("Updated install page")
 
     def _notes_section(self, heading: str, items: List[str], muted: bool = False) -> str:
         if not items:
@@ -323,7 +368,7 @@ class ReleaseEngine:
         self._write(self.archive_dir / "deployment_summary.md", self._summary_markdown())
         self._write(self.archive_dir / "metadata.json", json.dumps(self._release_record(), indent=2) + "\n")
         self._update_redirects()
-        self.log(f"  archived -> {self._rel(self.archive_dir, self.beacon_repo)}")
+        self._ok("Archived immutable snapshot")
 
     def _update_redirects(self) -> None:
         if not self.cfg.legacy_redirects:
@@ -364,7 +409,7 @@ class ReleaseEngine:
                               ("manifest url", self.cfg.manifest_url)]:
             if needle not in page:
                 raise ReleaseError(f"Validation failed: install page missing {label} '{needle}'.")
-        self.log("  bundle id, version, build, manifest, install page, IPA all agree ✓")
+        self._ok("Consistency validated (bundle id, version, build, manifest, install page, IPA)")
 
     # -- 9. commit ------------------------------------------------------
     def step_commit(self) -> None:
@@ -387,15 +432,16 @@ class ReleaseEngine:
         )
         self._git("commit", "-m", message)
         self.commit_id = (self._git("rev-parse", "HEAD") or "").strip()
-        self.log(f"  committed {self.commit_id[:9]}")
+        self._ok(f"Commit created ({self.commit_id[:9]})")
 
     # -- 10. push -------------------------------------------------------
     def step_push(self) -> None:
         self._step(10, "Push to GitHub")
         branch = (self._git("rev-parse", "--abbrev-ref", "HEAD") or "").strip()
-        env = {**os.environ, "GIT_SSH_COMMAND": "ssh -p 443"}
+        # GitHub's SSH-over-443 endpoint; accept-new trusts the host key on first
+        # use (standard for automation) so a fresh machine needs no known_hosts setup.
+        env = {**os.environ, "GIT_SSH_COMMAND": "ssh -p 443 -o StrictHostKeyChecking=accept-new"}
         self._git("push", "origin", branch, env=env)
-        self.log(f"  pushed {branch}")
         if branch != self.cfg.deploy_branch:
             res = self._git("push", "origin", f"HEAD:{self.cfg.deploy_branch}", env=env, check=False)
             if res is None:
@@ -403,9 +449,8 @@ class ReleaseEngine:
                     f"Could not fast-forward '{self.cfg.deploy_branch}' from '{branch}'. "
                     f"Merge manually and re-run."
                 )
-            self.log(f"  fast-forwarded {self.cfg.deploy_branch} -> Railway will deploy")
-        else:
-            self.log(f"  {branch} is the deploy branch -> Railway will deploy")
+            self.log(f"  {branch} -> fast-forwarded {self.cfg.deploy_branch}")
+        self._ok(f"Pushed to GitHub ({self.cfg.deploy_branch}) — Railway will deploy")
 
     # -- 11+12. verify --------------------------------------------------
     def step_verify(self) -> None:
@@ -455,10 +500,10 @@ class ReleaseEngine:
             "Bundle Identifier": self.ipa.bundle_id,
             "Minimum iOS": self.ipa.min_ios,
             "Commit ID": self.commit_id or "(not committed)",
-            "Railway Status": "deployed & serving new IPA" if self.deploy else "not deployed",
+            "Railway Status": "pushed — deploying in background" if self.deploy else "not deployed",
             "Deployment Date": self.deployed_at,
             "SHA-256": self.source_sha,
-            "SHA Verification": "PASS (live == source)" if self.deploy else "n/a",
+            "Production Verification": "run '/release verify'" if self.deploy else "n/a",
             "Install URL": self.cfg.install_url,
         }
         width = max(len(k) for k in self.report_data)
@@ -466,6 +511,127 @@ class ReleaseEngine:
         for k, v in self.report_data.items():
             self.log(f"  {k:<{width}} : {v}")
         return self.report_data
+
+    # ==================================================================
+    # verify mode (authoritative production validation)
+    # ==================================================================
+    def _load_published(self) -> None:
+        """Read what SHOULD be live from the already-published Beacon artifacts —
+        never from a pending IPA. Verify checks the deployed build, not a rebuild."""
+        self._phase("Loading published release...")
+        manifest_path = self.out_downloads / self.cfg.manifest_name
+        if not manifest_path.is_file():
+            raise ReleaseError(
+                f"Nothing published yet for '{self.cfg.key}' "
+                f"({self._rel(manifest_path, self.beacon_repo)} not found). "
+                f"Run /release to publish first."
+            )
+        with open(manifest_path, "rb") as fh:
+            man = plistlib.load(fh)
+        meta = man["items"][0]["metadata"]
+        asset_url = man["items"][0]["assets"][0]["url"]
+        self.expected_version = str(meta["bundle-version"])
+        self.expected_bundle_id = str(meta["bundle-identifier"])
+        self.ipa_dest_name = self._basename(asset_url)
+        ipa_path = self.out_downloads / self.ipa_dest_name
+        if not ipa_path.is_file():
+            raise ReleaseError(f"Published IPA missing: {self._rel(ipa_path, self.beacon_repo)}")
+        self.source_sha = self._sha256_file(ipa_path)
+        self._ok(f"Published build: v{self.expected_version}, {self.ipa_dest_name}")
+        self.log(f"  bundle id : {self.expected_bundle_id}")
+        self.log(f"  sha256    : {self.source_sha}")
+
+    def _wait_for_railway(self) -> None:
+        """Poll until the live IPA matches the published build. Shows elapsed time
+        and what is being waited on; returns the instant the deployment is detected."""
+        self._phase("Waiting for Railway deployment...")
+        ipa_url = self.cfg.ipa_url(self.ipa_dest_name)
+        start = time.time()
+        deadline = start + self.poll_timeout
+        first = True
+        while True:
+            elapsed = int(time.time() - start)
+            live_sha = self._http_sha(ipa_url)
+            if live_sha == self.source_sha:
+                self._ok(f"Deployment detected (after {elapsed}s)")
+                return
+            # Not live yet — say why, with elapsed time.
+            status = self._http_status(ipa_url)
+            if first:
+                self._bullet("Polling deployment status...")
+                first = False
+            reason = ("build in progress (old build still serving)"
+                      if status == 200 else f"waiting for site (HTTP {status or 'no response'})")
+            self._bullet(f"[{elapsed:>3}s] {reason}")
+            if time.time() >= deadline:
+                raise ReleaseError(
+                    f"Deployment not live after {self.poll_timeout}s. The push succeeded, "
+                    f"so Railway may still be building — re-run '/release verify' shortly. "
+                    f"(Last: live IPA SHA does not yet match the published build.)"
+                )
+            time.sleep(self.poll_interval)
+
+    def _production_validation(self) -> None:
+        """The complete, authoritative production check set. Any failure stops the
+        pipeline — success is never reported unless every check passes."""
+        self._phase("Running production verification...")
+        install_url = self.cfg.install_url
+        manifest_url = self.cfg.manifest_url
+        ipa_url = self.cfg.ipa_url(self.ipa_dest_name)
+
+        # install page + manifest reachable
+        self._require(self._http_status(install_url) == 200, f"Install page not 200: {install_url}")
+        self._ok("Install page (HTTP 200)")
+        self._require(self._http_status(manifest_url) == 200, f"Manifest not 200: {manifest_url}")
+        self._ok("Manifest (HTTP 200)")
+
+        # IPA downloads and its bytes match the published build
+        live_sha = self._http_sha(ipa_url)
+        self._require(live_sha is not None, f"IPA did not download: {ipa_url}")
+        self._ok("IPA downloaded")
+        self._require(live_sha == self.source_sha,
+                      f"SHA-256 mismatch: live {live_sha} != published {self.source_sha}")
+        self._ok("SHA-256 matches build")
+
+        # live manifest agrees on identity
+        man = self._http_plist(manifest_url)
+        self._require(man is not None, "Could not parse the live manifest.plist.")
+        meta = man["items"][0]["metadata"]
+        self._require(meta.get("bundle-identifier") == self.expected_bundle_id,
+                      f"Live manifest bundle id '{meta.get('bundle-identifier')}' "
+                      f"!= '{self.expected_bundle_id}'")
+        self._ok("Bundle ID verified")
+        self._require(str(meta.get("bundle-version")) == self.expected_version,
+                      f"Live manifest version '{meta.get('bundle-version')}' != '{self.expected_version}'")
+        self._ok("Version verified")
+
+        # legacy redirects still 301 to the canonical path
+        self._verify_redirects()
+        self._ok("Legacy redirects verified")
+
+        self.report_data = {
+            "Product": self.cfg.display_name,
+            "Version": self.expected_version,
+            "Bundle Identifier": self.expected_bundle_id,
+            "SHA-256": self.source_sha,
+            "Install URL": install_url,
+            "Verification": "PASS (all production checks)",
+        }
+
+    def _verify_redirects(self) -> None:
+        base = self.cfg.base_url.rstrip("/")
+        for legacy in self.cfg.legacy_redirects:
+            want = f"{self.cfg.url_path.rstrip('/')}/{legacy.rstrip('/').rsplit('/', 1)[-1]}"
+            code, location = self._http_redirect(base + legacy)
+            self._require(
+                code in (301, 302, 308) and location and location.endswith(want),
+                f"Legacy redirect broken: {legacy} -> {code} {location or '(none)'} "
+                f"(expected 301 -> {want})"
+            )
+
+    def _require(self, ok: bool, message: str) -> None:
+        if not ok:
+            raise ReleaseError(message)
 
     # ==================================================================
     # helpers
@@ -579,10 +745,14 @@ class ReleaseEngine:
     def _basename(url: str) -> str:
         return url.rstrip("/").rsplit("/", 1)[-1]
 
-    # -- network --
+    # -- network (all requests present a browser UA; the site 403s others) --
+    @staticmethod
+    def _request(url: str, method: str = "GET") -> "urllib.request.Request":
+        return urllib.request.Request(url, method=method, headers={"User-Agent": BROWSER_UA})
+
     def _http_status(self, url: str) -> int:
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=30) as r:
+            with urllib.request.urlopen(self._request(url), timeout=30) as r:
                 r.read(1)
                 return r.status
         except urllib.error.HTTPError as e:
@@ -592,7 +762,7 @@ class ReleaseEngine:
 
     def _http_sha(self, url: str) -> Optional[str]:
         try:
-            with urllib.request.urlopen(url, timeout=120) as r:
+            with urllib.request.urlopen(self._request(url), timeout=120) as r:
                 if r.status != 200:
                     return None
                 h = hashlib.sha256()
@@ -601,6 +771,30 @@ class ReleaseEngine:
                 return h.hexdigest()
         except Exception:  # noqa: BLE001
             return None
+
+    def _http_plist(self, url: str):
+        try:
+            with urllib.request.urlopen(self._request(url), timeout=30) as r:
+                if r.status != 200:
+                    return None
+                return plistlib.loads(r.read())
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _http_redirect(self, url: str):
+        """Return (status, Location) WITHOUT following the redirect, so a 301 is
+        visible. Used to prove legacy URLs still redirect to the canonical path."""
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):  # noqa: D401
+                return None
+        opener = urllib.request.build_opener(_NoRedirect)
+        try:
+            with opener.open(self._request(url), timeout=30) as r:
+                return r.status, r.headers.get("Location")
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers.get("Location")
+        except Exception:  # noqa: BLE001
+            return 0, None
 
     # -- git --
     def _git(self, *args, env=None, check=True):
@@ -618,11 +812,22 @@ class ReleaseEngine:
             return None
         return proc.stdout
 
-    # -- logging --
+    # -- logging (phased progress: "Phase..." / "✓ done" / "• waiting") --
     def _banner(self, text: str) -> None:
         self.log("=" * 70)
         self.log(text)
         self.log("=" * 70)
 
+    def _phase(self, text: str) -> None:
+        self.log(f"\n{text}")
+
+    def _ok(self, text: str) -> None:
+        self.log(f"✓ {text}")
+
+    def _bullet(self, text: str) -> None:
+        self.log(f"• {text}")
+
+    # Retained for the step methods; quiet now so the phased ✓/• output reads
+    # cleanly. The detailed inner logs and the ✓ summaries carry the narrative.
     def _step(self, n: int, title: str) -> None:
-        self.log(f"\n── Step {n}: {title} " + "─" * max(0, 46 - len(title)))
+        return

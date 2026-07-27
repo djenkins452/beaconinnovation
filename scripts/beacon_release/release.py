@@ -60,6 +60,9 @@ def main(argv=None) -> int:
                         "or beacon.repo in release.yaml)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-deploy", action="store_true")
+    p.add_argument("--verify", action="store_true",
+                   help="verify-only: wait for Railway + full production validation of the "
+                        "already-published release (does not stage/commit/push)")
     p.add_argument("--notes-file", type=Path)
     p.add_argument("--poll-timeout", type=int, default=None)
     p.add_argument("--poll-interval", type=int, default=15)
@@ -91,6 +94,7 @@ def main(argv=None) -> int:
         cfg, product_repo, beacon_repo,
         dry_run=args.dry_run,
         deploy=not args.no_deploy,
+        verify_only=args.verify,
         notes_override=notes_override,
         poll_timeout=args.poll_timeout,
         poll_interval=args.poll_interval,
