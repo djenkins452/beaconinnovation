@@ -251,17 +251,28 @@ class ReleaseEngine:
     # -- 4/6. synchronize + publish ------------------------------------
     def step_sync(self) -> None:
         self._step(4, "Synchronize manifest + Release Portal")
+        title = self.cfg.portal_title
         manifest = templates.render(templates.MANIFEST_TEMPLATE, {
             "IPA_URL": self.cfg.ipa_url(self.ipa_dest_name),
             "BUNDLE_ID": self.ipa.bundle_id,
             "VERSION": self.ipa.version,
-            "PRODUCT_TITLE": self.cfg.display_name,
+            "PRODUCT_TITLE": title,
         })
         self._write(self.out_downloads / self.cfg.manifest_name, manifest)
         self.log(f"  wrote {self.cfg.manifest_name} (bundle-version {self.ipa.version})")
 
+        icon_block = (
+            f'            <img class="app-icon" src="{self._esc(self.cfg.icon)}" '
+            f'alt="{self._esc(title)} icon">\n' if self.cfg.icon else ""
+        )
+        desc_block = (
+            f'            <p class="desc">{self._esc(self.cfg.description)}</p>\n'
+            if self.cfg.description else ""
+        )
         page = templates.render(templates.INSTALL_PAGE_TEMPLATE, {
-            "PRODUCT_TITLE": self.cfg.display_name,
+            "PRODUCT_TITLE": title,
+            "ICON_BLOCK": icon_block,
+            "DESCRIPTION_BLOCK": desc_block,
             "VERSION": self.ipa.version,
             "BUILD": self.ipa.build,
             "RELEASE_DATE": self.release_date,
@@ -475,6 +486,10 @@ class ReleaseEngine:
         return {
             "product": self.cfg.key,
             "display_name": self.cfg.display_name,
+            "public_name": self.cfg.portal_title,
+            "description": self.cfg.description,
+            "icon": self.cfg.icon,
+            "platform": self.cfg.platform,
             "version": self.ipa.version,
             "build": self.ipa.build,
             "bundle_id": self.ipa.bundle_id,

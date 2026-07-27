@@ -44,9 +44,20 @@ class ProductConfig:
     # portal
     show_previous_releases: bool = True
 
+    # optional metadata (products become almost configuration-only; all optional)
+    public_name: Optional[str] = None   # user-facing name (overrides display_name on the portal)
+    description: Optional[str] = None    # short product description shown on the portal
+    icon: Optional[str] = None           # icon URL (absolute, or path under the download namespace)
+    platform: str = "ios"               # ios | android | … (informational; default ios)
+
     # fixed artifact filenames
     manifest_name: str = "manifest.plist"
     install_page_name: str = "install.html"
+
+    @property
+    def portal_title(self) -> str:
+        """User-facing title: public_name if given, else the branded display_name."""
+        return self.public_name or self.display_name
 
     # ---- URL helpers ----
     def public_url(self, filename: str) -> str:
@@ -120,4 +131,9 @@ def load_product_config(product_repo: Path) -> ProductConfig:
         poll_timeout=int(deploy.get("poll_timeout", 900)),
         legacy_redirects=[str(x).strip() for x in legacy if str(x).strip()],
         show_previous_releases=bool(portal.get("show_previous_releases", True)),
+        # optional metadata — all absent-safe
+        public_name=(str(product["public_name"]).strip() if product.get("public_name") else None),
+        description=(str(product["description"]).strip() if product.get("description") else None),
+        icon=(str(product["icon"]).strip() if product.get("icon") else None),
+        platform=(str(product.get("platform", "ios")).strip() or "ios"),
     )

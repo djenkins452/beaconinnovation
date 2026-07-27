@@ -1,10 +1,15 @@
 # Beacon Release Framework
 
-**One release engine, many products.** Beacon Innovation owns software distribution.
-Each product repo (AIMS, Whole Life Journey, UTMC HR, future products) ends at
-**Code → Archive → Export IPA**. Everything after that — publishing, archiving,
-verifying, distributing — is owned by the Beacon Innovation repo and performed by a
-single, product-agnostic **Beacon Release Engine**.
+**One release engine, many products.** Beacon Innovation is the **authoritative
+software distribution platform** for Beacon products. Each product repo (AIMS, Whole
+Life Journey, UTMC HR, future products) remains authoritative for its **source code
+and build artifacts**, and ends at **Code → Archive → Export IPA**. Everything after
+that — publishing, archiving, verifying, distributing — is owned by the Beacon
+Innovation platform and performed by a single, product-agnostic **Beacon Release
+Engine**.
+
+In short: the product is authoritative for *building* the release; Beacon is
+authoritative for *distributing* it.
 
 The **exported IPA is the single source of truth.** Every deployment artifact is
 derived from it automatically. Nobody hand-edits version, build, bundle identifier,
@@ -32,10 +37,26 @@ releases/pending/<app>.ipa ──ingest─▶        distribution/             �
    (generic, from kit)                       releases/<product>/       ← permanent archive + history
 ```
 
-- **Product repo** owns only: `release.yaml`, `releases/pending/` (drop zone), and the
-  generic `/release` command. No manifests, install pages, or committed binaries.
-- **Beacon repo** owns: the engine, the serving layer, the live artifacts, and the
-  permanent archive / rollback history.
+- **Product repo** (authoritative for source + build) owns only: `release.yaml`,
+  `releases/pending/` (drop zone), and the generic `/release` command. No manifests,
+  install pages, or committed binaries.
+- **Beacon platform** (authoritative for distribution) owns: the engine, the serving
+  layer, the live artifacts, and the permanent archive / rollback history.
+
+## User experience — how people actually get the app
+
+Users never navigate the `/downloads/<product>/` URLs directly. Those are the internal
+distribution plumbing (OTA manifest + IPA + install portal). The user-facing path is
+the authenticated products portal:
+
+```
+Login → My Products → Product → Download
+```
+
+The `products` app owns that flow; its "Download" action leads to the OTA install for
+the product. `/downloads/<product>/` exists so that flow — and iOS itms-services OTA —
+have stable, public artifact URLs behind it. Treat `/downloads/<product>/` as an
+implementation detail, not an entry point.
 
 ### Engine (`scripts/beacon_release/`)
 
@@ -99,9 +120,17 @@ param, no per-product code):
 ## `release.yaml`
 
 See `scripts/beacon_release/starter-kit/release.yaml.template` for the fully-commented
-template. Key fields: `product.{key,display_name,name,bundle_id}`,
-`source.{pending_dir,ipa_name}`, `beacon.repo`, `deploy.{base_url,url_path,deploy_branch,
-poll_timeout,legacy_redirects}`, `portal.show_previous_releases`.
+template. Required: `product.{key,display_name}`, `deploy.{base_url,url_path}`. Guards
++ common fields: `product.{name,bundle_id}`, `source.{pending_dir,ipa_name}`,
+`beacon.repo`, `deploy.{deploy_branch,poll_timeout,legacy_redirects}`,
+`portal.show_previous_releases`.
+
+**Optional metadata** (products become almost configuration-only; the engine works
+fine when these are absent): `product.public_name` (user-facing portal title,
+overrides `display_name` there), `product.description` (portal subtitle),
+`product.icon` (icon URL, shown on the portal), `product.platform` (`ios`/`android`/…,
+informational). These are also recorded in each release's `metadata.json` /
+`history.json`, so the products portal can render product info straight from config.
 
 ## Permanent archive (`releases/<product>/`)
 

@@ -7,11 +7,19 @@
 product:
   key: myproduct                 # REQUIRED. Slug → /downloads/<key>/ and releases/<key>/.
                                  #   Lowercase letters, digits, hyphens. e.g. aims, wlj, utmc
-  display_name: My Product       # REQUIRED. Branded name on the portal + manifest title.
+  display_name: My Product       # REQUIRED. Branded name (manifest title + portal fallback title).
   name: MyProductApp             # optional. CFBundleName guard — engine aborts if the IPA
                                  #   reports a different CFBundleName.
   bundle_id: com.beaconinnovation.myproduct   # optional but recommended. Guard — engine
                                  #   aborts if the IPA's bundle id differs.
+
+  # --- optional metadata (products become almost configuration-only) ---
+  # The engine works fine when these are absent.
+  public_name: My Product        # optional. User-facing name shown on the portal
+                                 #   (overrides display_name there). Defaults to display_name.
+  description: One-line description shown on the release portal.   # optional.
+  icon: https://beacon-innovation.com/static/img/myproduct.png     # optional. Icon URL.
+  platform: ios                  # optional. ios | android | … (informational; default ios).
 
 source:
   pending_dir: releases/pending  # where you drop the exported IPA (relative to this repo)

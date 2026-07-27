@@ -11,10 +11,15 @@ duplicated into the product repo.
 - `releases/pending/` — a temporary drop zone for the exported IPA.
 - `.claude/commands/release.md` — the generic `/release` command.
 
+The product repo stays **authoritative for source code and build artifacts**.
 Everything else — copying the IPA, the manifest, the install portal, release notes,
-the permanent archive, deployment history, rollback, verification — lives in and is
-owned by the **Beacon Innovation** repo. Products produce releases; Beacon publishes,
-archives, verifies, and distributes them.
+the permanent archive, deployment history, rollback, verification — is owned by the
+**Beacon Innovation** platform, which is **authoritative for distribution**. Products
+produce releases; Beacon publishes, archives, verifies, and distributes them.
+
+Users reach releases through the authenticated products portal
+(**Login → My Products → Product → Download**), never by navigating
+`/downloads/<product>/` directly.
 
 ## Installation
 
@@ -52,6 +57,8 @@ From the root of the product repo:
 - [ ] `beacon.repo` points to the Beacon Innovation repo on this machine.
 - [ ] `deploy.base_url` and `deploy.url_path` set (`/downloads/<key>`).
 - [ ] `deploy.legacy_redirects` lists any old URLs to preserve (optional).
+- [ ] Optional metadata set if desired: `product.public_name`, `description`, `icon`,
+      `platform` (all absent-safe — the engine works without them).
 - [ ] `releases/pending/` exists and `*.ipa` is git-ignored.
 - [ ] `.claude/commands/release.md` installed.
 - [ ] Verified with a dry run (see below).

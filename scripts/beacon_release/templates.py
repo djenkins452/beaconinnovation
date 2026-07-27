@@ -72,7 +72,13 @@ INSTALL_PAGE_TEMPLATE = """\
         }
         .card { width: 100%; max-width: 460px; }
         header { text-align: center; margin-bottom: 32px; }
+        .app-icon {
+            width: 88px; height: 88px; border-radius: 20px;
+            display: block; margin: 0 auto 14px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        }
         h1 { font-size: 1.9rem; margin-bottom: 6px; }
+        .desc { color: #aeb9c6; font-size: 0.98rem; line-height: 1.5; margin-bottom: 14px; }
         .meta { color: #8fa3b8; font-size: 0.95rem; line-height: 1.5; }
         .meta strong { color: #cdd9e5; font-weight: 600; }
         .install-btn {
@@ -154,8 +160,8 @@ INSTALL_PAGE_TEMPLATE = """\
 <body>
     <div class="card">
         <header>
-            <h1>{{PRODUCT_TITLE}}</h1>
-            <p class="meta">
+{{ICON_BLOCK}}            <h1>{{PRODUCT_TITLE}}</h1>
+{{DESCRIPTION_BLOCK}}            <p class="meta">
                 Version <strong>{{VERSION}}</strong> &middot; Build <strong>{{BUILD}}</strong><br>
                 Released {{RELEASE_DATE}}
             </p>
