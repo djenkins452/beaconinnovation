@@ -9,7 +9,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-dgmjrf7va0u11#qu4=a_yp=$+&#@%hsiyvgthiw+s++au^yh%5'
+# OTA install tokens (and sessions/CSRF) are signed with this key, so it MUST
+# be a strong secret in production — set DJANGO_SECRET_KEY on Railway. The
+# committed default is a dev fallback only; if it is in use, signed tokens are
+# forgeable by anyone with repo access.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-dgmjrf7va0u11#qu4=a_yp=$+&#@%hsiyvgthiw+s++au^yh%5',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
