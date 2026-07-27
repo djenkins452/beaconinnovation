@@ -4,14 +4,19 @@ Tests for the secure product download portal.
 Focus: authorization. Users must only see and download products granted to
 them; unauthorized and anonymous users must not.
 """
+import os
 import shutil
 import tempfile
+from io import StringIO
+from unittest import mock
 
 from django.contrib.auth.models import Group, User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .management.commands.bootstrap_portal import ADMIN_USERNAME, AIMS_SLUG
 from .models import Product
 from .views import PASSWORD_CHANGE_REQUIRED_GROUP
 
@@ -189,25 +194,66 @@ class ForcedPasswordChangeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
 
-class BootstrapTests(TestCase):
-    """The bootstrap migration seeds the admin + AIMS without any hardcoded
-    password, and flags a freshly created admin to change it."""
+@override_settings(MEDIA_ROOT=_TEST_MEDIA)
+class BootstrapCommandTests(TestCase):
+    """`manage.py bootstrap_portal` performs all bootstrap — no migration side
+    effects, no hardcoded passwords."""
 
-    def test_admin_and_aims_seeded(self):
-        self.assertTrue(User.objects.filter(username='dannyjenkins71@gmail.com').exists())
-        self.assertTrue(Product.objects.filter(slug='aims').exists())
+    def _run(self):
+        out = StringIO()
+        call_command('bootstrap_portal', stdout=out)
+        return out.getvalue()
 
-    def test_seeded_admin_flagged_for_password_change(self):
-        admin = User.objects.get(username='dannyjenkins71@gmail.com')
+    def test_creates_admin_with_temp_password_and_forces_change(self):
+        User.objects.filter(username=ADMIN_USERNAME).delete()
+        out = self._run()
+        admin = User.objects.get(username=ADMIN_USERNAME)
+        self.assertTrue(admin.is_superuser and admin.is_staff)
+        self.assertTrue(admin.has_usable_password())
         self.assertTrue(admin.groups.filter(name=PASSWORD_CHANGE_REQUIRED_GROUP).exists())
+        self.assertIn('Temporary password', out)
 
-    def test_no_hardcoded_password_in_bootstrap_migration(self):
-        import os
+    def test_creates_and_grants_aims(self):
+        User.objects.filter(username=ADMIN_USERNAME).delete()
+        self._run()
+        aims = Product.objects.get(slug='aims')
+        admin = User.objects.get(username=ADMIN_USERNAME)
+        self.assertTrue(aims.authorized_users.filter(pk=admin.pk).exists())
+
+    def test_leaves_existing_admin_completely_unchanged(self):
+        # finance/0006 already created this admin in the migrated test DB.
+        admin = User.objects.get(username=ADMIN_USERNAME)
+        old_password_hash = admin.password
+        out = self._run()
+        admin.refresh_from_db()
+        self.assertEqual(admin.password, old_password_hash)
+        self.assertFalse(admin.groups.filter(name=PASSWORD_CHANGE_REQUIRED_GROUP).exists())
+        self.assertIn('left unchanged', out)
+
+    def test_idempotent(self):
+        self._run()
+        self._run()  # must not raise or duplicate
+        self.assertEqual(Product.objects.filter(slug=AIMS_SLUG).count(), 1)
+
+    def test_env_var_password_is_used(self):
+        User.objects.filter(username=ADMIN_USERNAME).delete()
+        with mock.patch.dict(os.environ, {'BEACON_ADMIN_PASSWORD': 'Env-Provided-Pass-42!'}):
+            self._run()
+        admin = User.objects.get(username=ADMIN_USERNAME)
+        self.assertTrue(admin.check_password('Env-Provided-Pass-42!'))
+
+    def test_no_hardcoded_password_in_bootstrap_sources(self):
+        import products.management.commands.bootstrap_portal as cmd_mod
+        with open(cmd_mod.__file__) as f:
+            command_src = f.read()
+        self.assertNotIn('Beacon!Temp2026', command_src)
+        self.assertNotIn('Beacon2026', command_src)
+
+        # The bootstrap migration must be a side-effect-free no-op.
         import products.migrations as mig_pkg
-
-        path = os.path.join(os.path.dirname(mig_pkg.__file__), '0002_bootstrap_portal.py')
-        with open(path) as f:
-            source = f.read()
-        # No previously hardcoded password may appear anywhere in the migration.
-        self.assertNotIn('Beacon!Temp2026', source)
-        self.assertNotIn('Beacon2026', source)
+        mpath = os.path.join(os.path.dirname(mig_pkg.__file__), '0002_bootstrap_portal.py')
+        with open(mpath) as f:
+            migration_src = f.read()
+        self.assertNotIn('Beacon', migration_src)
+        self.assertNotIn('create_user', migration_src)
+        self.assertNotIn('create_superuser', migration_src)

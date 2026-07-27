@@ -4,6 +4,20 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-07-27
+
+### Product Download Portal — bootstrap moved to a management command
+- **Immutable migrations.** Restored `finance/migrations/0006_create_superuser.py` to its exact original committed content (from commit `90e206d`). Historical/committed migrations are treated as immutable and are no longer edited by this work.
+- **Bootstrap is now a management command, not a migration.** Added `products/management/commands/bootstrap_portal.py`. It is idempotent and safe to run on every deploy, and it:
+  - Leaves an existing administrator account **completely unchanged**.
+  - If the admin (`dannyjenkins71@gmail.com`) does not exist, creates it with a temporary password from `BEACON_ADMIN_PASSWORD` (or a strong random `secrets.token_urlsafe` password), displays it **once**, and flags the account (group `portal_must_change_password`) to force a password change on first login.
+  - Ensures the AIMS product exists and grants the admin access.
+- **No side effects in migrations.** `products/migrations/0002_bootstrap_portal.py` is now an empty no-op (kept only to preserve the migration chain for `0003`). No secrets or account creation in any migration.
+- **Deploy wiring.** `procfile` release step now runs `python manage.py bootstrap_portal` after `migrate`.
+- Files: `finance/migrations/0006_create_superuser.py` (restored), `products/management/commands/bootstrap_portal.py` (new), `products/management/__init__.py` + `products/management/commands/__init__.py` (new), `products/migrations/0002_bootstrap_portal.py` (no-op), `products/tests.py` (command tests replace migration-seeding tests), `procfile`.
+- Tests: full suite 476 passing (`python manage.py test`).
+- Note: On production the admin already exists (created by finance/0006 with `Beacon2026`), so the command leaves it unchanged — log in and change that password. The forced-change flow applies to brand-new deployments where no admin exists yet.
+
 ## 2026-07-26
 
 ### Secure Product Download Portal (Phase 1)
