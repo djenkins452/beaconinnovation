@@ -42,11 +42,13 @@ INSTALLED_APPS = [
     'admin_console',
     'finance',
     'products',
+    'distribution',
     'whitenoise.runserver_nostatic',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'distribution.middleware.LegacyRedirectMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -132,6 +134,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 WHITENOISE_MIMETYPES = {
     '.plist': 'text/xml',
 }
+
+# Beacon distribution: release artifacts served at /downloads/<product>/ by the
+# `distribution` app (written by the Beacon Release Engine, scripts/beacon_release).
+DOWNLOADS_ROOT = BASE_DIR / 'downloads'
 
 # Media files (uploads)
 MEDIA_URL = '/media/'

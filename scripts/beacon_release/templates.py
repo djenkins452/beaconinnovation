@@ -1,8 +1,7 @@
-"""Rendered deployment artifacts.
+"""Rendered deployment artifacts (manifest + Release Portal).
 
-Templates use ``{{TOKEN}}`` placeholders (not ``str.format``) so the CSS braces
-in the install page don't collide with substitution. :func:`render` does a plain
-string replace of every ``{{KEY}}`` with ``context[KEY]``.
+Templates use ``{{TOKEN}}`` placeholders (not ``str.format``) so CSS braces don't
+collide. :func:`render` does a plain replace of every ``{{KEY}}``.
 """
 
 from __future__ import annotations
@@ -17,9 +16,6 @@ def render(template: str, context: Dict[str, str]) -> str:
     return out
 
 
-# ---------------------------------------------------------------------------
-# OTA manifest (itms-services install manifest)
-# ---------------------------------------------------------------------------
 MANIFEST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,9 +51,6 @@ MANIFEST_TEMPLATE = """\
 """
 
 
-# ---------------------------------------------------------------------------
-# Release portal (install page)
-# ---------------------------------------------------------------------------
 INSTALL_PAGE_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -134,6 +127,14 @@ INSTALL_PAGE_TEMPLATE = """\
         }
         .notes li.muted { color: #8fa3b8; }
         .notes li.muted::before { background: #4a5f74; }
+        .history { margin-top: 20px; }
+        .history table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .history th, .history td {
+            text-align: left; padding: 8px 10px; border-bottom: 1px solid #1c3346;
+            color: #cdd9e5;
+        }
+        .history th { color: #7fb2ff; font-weight: 600; font-size: 0.8rem;
+            text-transform: uppercase; letter-spacing: 0.04em; }
         .note {
             margin-top: 28px;
             font-size: 0.85rem;
@@ -165,7 +166,7 @@ INSTALL_PAGE_TEMPLATE = """\
             Install {{PRODUCT_TITLE}}
         </a>
 
-{{WHATS_NEW_SECTION}}{{BUG_FIXES_SECTION}}{{KNOWN_ISSUES_SECTION}}
+{{WHATS_NEW_SECTION}}{{BUG_FIXES_SECTION}}{{KNOWN_ISSUES_SECTION}}{{PREVIOUS_RELEASES_SECTION}}
         <p class="note">
             Open this page in Safari on your iPhone, then tap the button above.
             When prompted, tap <strong>Install</strong>. After installation, go to
@@ -189,6 +190,18 @@ NOTES_SECTION_TEMPLATE = """\
             <ul>
 {{ITEMS}}
             </ul>
+        </section>
+
+"""
+
+
+PREVIOUS_RELEASES_TEMPLATE = """\
+        <section class="notes history">
+            <h2>Previous Releases</h2>
+            <table>
+                <tr><th>Version</th><th>Build</th><th>Released</th></tr>
+{{ROWS}}
+            </table>
         </section>
 
 """

@@ -1,0 +1,35 @@
+# Beacon product release configuration
+# ------------------------------------
+# Copy this file to the ROOT of a Beacon product repo as `release.yaml`, then
+# fill in the values. The Beacon Release Engine reads this to publish releases.
+# The engine NEVER guesses — every value it needs comes from here (or the IPA).
+
+product:
+  key: myproduct                 # REQUIRED. Slug → /downloads/<key>/ and releases/<key>/.
+                                 #   Lowercase letters, digits, hyphens. e.g. aims, wlj, utmc
+  display_name: My Product       # REQUIRED. Branded name on the portal + manifest title.
+  name: MyProductApp             # optional. CFBundleName guard — engine aborts if the IPA
+                                 #   reports a different CFBundleName.
+  bundle_id: com.beaconinnovation.myproduct   # optional but recommended. Guard — engine
+                                 #   aborts if the IPA's bundle id differs.
+
+source:
+  pending_dir: releases/pending  # where you drop the exported IPA (relative to this repo)
+  ipa_name: MyProductApp.ipa     # optional. If omitted, the newest *.ipa in pending_dir is used.
+
+beacon:
+  repo: /Users/dannyjenkins/Projects/beaconinnovation   # path to the Beacon Innovation repo
+                                 #   (the engine + deploy target live there). If the engine is
+                                 #   run from that repo, this can be omitted.
+
+deploy:
+  base_url: https://beacon-innovation.com   # REQUIRED. Public site origin.
+  url_path: /downloads/myproduct # REQUIRED. Canonical public path for this product.
+  deploy_branch: main            # branch Railway deploys from (default: main)
+  poll_timeout: 900              # seconds to wait for Railway before failing (default: 900)
+  legacy_redirects: []           # optional. Old URLs to 301-redirect to the canonical path,
+                                 #   e.g. to preserve previously shared links:
+                                 #   - /static/downloads/install.html
+
+portal:
+  show_previous_releases: true   # show the "Previous Releases" table on the portal
