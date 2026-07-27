@@ -6,6 +6,11 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-07-27
 
+### Fix: deploy release chain never ran (`procfile` → `Procfile`)
+- **Symptom:** After publishing AIMS, production `/healthz` reported `aims.exists: false` — the AIMS product was never created in production. Root cause: the process file was named lowercase `procfile`; Railway's builder only honors `Procfile` (capital P), so the release chain (`migrate && create_wlj_superuser && bootstrap_portal && gunicorn`) never ran — migrations were applied by the builder's Django auto-detection, but `bootstrap_portal` (which creates/publishes AIMS) never executed. This is why the portal had no AIMS product in production.
+- **Fix:** renamed `procfile` → `Procfile` so the release chain runs on deploy (which creates AIMS, publishes the current build, and grants the admin access — idempotently, every deploy, covering ephemeral storage).
+- Files: `Procfile` (renamed from `procfile`).
+
 ### Publish AIMS build 0.3.0 (Build 3) to the Product Download Portal
 - Published the newest signed AIMS production export to the portal and OTA static endpoint. No release-framework / `/release` / `distribution` work.
 - IPA: `AIMSField.ipa`, 1,137,725 bytes, bundle `com.beaconinnovation.aims.field`, **version 0.3.0**, **build 3** (signed: embedded.mobileprovision + `_CodeSignature`).
