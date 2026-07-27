@@ -13,14 +13,14 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = ('name', 'description', 'current_version', 'current_build')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('authorized_users',)
-    readonly_fields = ('created_at', 'updated_at', 'filename')
+    readonly_fields = ('created_at', 'updated_at', 'filename', 'bundle_id')
 
     fieldsets = (
         (None, {
             'fields': ('name', 'slug', 'description', 'current_version', 'current_build', 'icon'),
         }),
         ('Download', {
-            'fields': ('download_file', 'filename', 'download_enabled'),
+            'fields': ('download_file', 'filename', 'bundle_id', 'download_enabled'),
             'description': "Uploading a new file replaces the current build. "
                            "Uncheck 'download enabled' to pause downloads without deleting the file.",
         }),

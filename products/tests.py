@@ -5,6 +5,7 @@ Focus: authorization. Users must only see and download products granted to
 them; unauthorized and anonymous users must not.
 """
 import os
+import plistlib
 import shutil
 import tempfile
 from io import StringIO
@@ -14,12 +15,12 @@ from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .management.commands.bootstrap_portal import ADMIN_USERNAME, AIMS_SLUG, read_ipa_metadata
 from .models import Product
-from .views import PASSWORD_CHANGE_REQUIRED_GROUP
+from .views import PASSWORD_CHANGE_REQUIRED_GROUP, make_ota_token
 
 _TEST_MEDIA = tempfile.mkdtemp(prefix='beacon-portal-test-')
 
@@ -113,6 +114,128 @@ class PortalAuthorizationTests(TestCase):
         self.client.login(username='danny', password='pw-danny-123')
         resp = self.client.get(reverse('products:download', args=['aims']))
         self.assertEqual(resp.status_code, 404)
+
+
+@override_settings(MEDIA_ROOT=_TEST_MEDIA)
+class OTAInstallTests(TestCase):
+    """Apple over-the-air install: device-aware page + token-gated,
+    cookieless manifest/IPA endpoints that still enforce authorization."""
+
+    IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+              "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+    DESKTOP = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/120 Safari/537.36")
+
+    @classmethod
+    def setUpTestData(cls):
+        Product.objects.all().delete()
+        cls.user = User.objects.create_user('otauser', password='pw-ota-123')
+        cls.other = User.objects.create_user('otaother', password='pw-other-123')
+        cls.app = Product.objects.create(
+            name='AIMS', slug='aims',
+            current_version='0.3.0', current_build='3',
+            bundle_id='com.beaconinnovation.aims.field',
+            download_file=SimpleUploadedFile('AIMSField.ipa', b'PK-fake-ipa-bytes'),
+        )
+        cls.app.authorized_users.add(cls.user)
+
+    # A fresh cookieless client models the iOS installer (itunesstored).
+    def installer(self):
+        return Client()
+
+    def manifest_url(self):
+        return reverse('products:manifest', args=['aims'])
+
+    def ota_url(self):
+        return reverse('products:ota_download', args=['aims'])
+
+    # --- device-aware product page ---
+
+    def test_ota_capable(self):
+        self.assertTrue(self.app.ota_capable)
+
+    def test_iphone_shows_install_and_itms_link(self):
+        self.client.login(username='otauser', password='pw-ota-123')
+        r = self.client.get(reverse('products:detail', args=['aims']), HTTP_USER_AGENT=self.IPHONE)
+        self.assertContains(r, 'itms-services://?action=download-manifest')
+        self.assertContains(r, 'Install AIMS')
+        self.assertContains(r, 'Download IPA')
+
+    def test_desktop_hides_install_serverside(self):
+        self.client.login(username='otauser', password='pw-ota-123')
+        r = self.client.get(reverse('products:detail', args=['aims']), HTTP_USER_AGENT=self.DESKTOP)
+        # Install stays in the DOM (JS reveals it for iPad-as-Mac) but hidden by default.
+        self.assertContains(r, 'id="btn-install" class="btn btn-lg btn-primary d-none"')
+
+    def test_non_ios_product_has_no_ota(self):
+        exe = Product.objects.create(
+            name='Tool', slug='tool',
+            download_file=SimpleUploadedFile('tool.exe', b'MZ-fake'))
+        exe.authorized_users.add(self.user)
+        self.client.login(username='otauser', password='pw-ota-123')
+        r = self.client.get(reverse('products:detail', args=['tool']))
+        self.assertNotContains(r, 'itms-services://')
+        self.assertContains(r, 'Download Latest Version')
+
+    # --- manifest (cookieless, token-gated) ---
+
+    def test_manifest_valid_token(self):
+        token = make_ota_token(self.user, self.app)
+        r = self.installer().get(self.manifest_url(), {'token': token})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'text/xml; charset=utf-8')
+        self.assertIn('no-store', r['Cache-Control'])
+        pl = plistlib.loads(r.content)
+        meta = pl['items'][0]['metadata']
+        self.assertEqual(meta['bundle-identifier'], 'com.beaconinnovation.aims.field')
+        self.assertEqual(meta['bundle-version'], '0.3.0')
+        self.assertEqual(meta['title'], 'AIMS')
+        self.assertEqual(pl['items'][0]['assets'][0]['kind'], 'software-package')
+        url = pl['items'][0]['assets'][0]['url']
+        self.assertTrue(url.startswith('https://'))
+        self.assertIn('/products/aims/ota-download/', url)
+        self.assertIn('token=', url)
+
+    def test_manifest_requires_valid_token(self):
+        self.assertEqual(self.installer().get(self.manifest_url()).status_code, 403)
+        self.assertEqual(self.installer().get(self.manifest_url(), {'token': 'garbage'}).status_code, 403)
+
+    def test_manifest_rejects_foreign_signature(self):
+        import django.core.signing as signing
+        forged = signing.dumps({'u': self.user.pk, 'p': 'aims'}, salt='not.the.salt')
+        self.assertEqual(self.installer().get(self.manifest_url(), {'token': forged}).status_code, 403)
+
+    def test_manifest_unauthorized_users_token_forbidden(self):
+        token = make_ota_token(self.other, self.app)  # signed, but user isn't authorized
+        self.assertEqual(self.installer().get(self.manifest_url(), {'token': token}).status_code, 403)
+
+    def test_manifest_token_scoped_to_product(self):
+        # A token minted for AIMS must not work on another product's manifest.
+        other = Product.objects.create(
+            name='Other', slug='other', bundle_id='com.x.y',
+            download_file=SimpleUploadedFile('o.ipa', b'x'))
+        other.authorized_users.add(self.user)
+        token = make_ota_token(self.user, self.app)  # scoped to 'aims'
+        r = self.installer().get(reverse('products:manifest', args=['other']), {'token': token})
+        self.assertEqual(r.status_code, 403)
+
+    # --- IPA (cookieless, token-gated) ---
+
+    def test_ota_download_valid_token(self):
+        token = make_ota_token(self.user, self.app)
+        r = self.installer().get(self.ota_url(), {'token': token})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'application/octet-stream')
+        self.assertIn('no-store', r['Cache-Control'])
+        self.assertEqual(b''.join(r.streaming_content), b'PK-fake-ipa-bytes')
+
+    def test_ota_download_requires_token(self):
+        self.assertEqual(self.installer().get(self.ota_url()).status_code, 403)
+        self.assertEqual(self.installer().get(self.ota_url(), {'token': 'nope'}).status_code, 403)
+
+    def test_ota_download_unauthorized_users_token_forbidden(self):
+        token = make_ota_token(self.other, self.app)
+        self.assertEqual(self.installer().get(self.ota_url(), {'token': token}).status_code, 403)
 
 
 @override_settings(MEDIA_ROOT=_TEST_MEDIA)

@@ -48,8 +48,10 @@ def healthz(request):
 				'exists': True,
 				'version': p.current_version,
 				'build': p.current_build,
+				'bundle_id': p.bundle_id,
 				'download_enabled': p.download_enabled,
 				'file_present': file_present,
+				'ota_capable': p.ota_capable,
 				'authorized_users': p.authorized_users.count(),
 			}
 		else:

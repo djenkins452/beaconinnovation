@@ -39,6 +39,10 @@ urlpatterns = [
 
     # Portal
     path('', views.my_products, name='my_products'),
-    path('<slug:slug>/', views.product_detail, name='detail'),
+    # OTA install (token-gated; fetched by the iOS installer without cookies).
+    path('<slug:slug>/manifest.plist', views.product_manifest, name='manifest'),
+    path('<slug:slug>/ota-download/', views.product_ota_download, name='ota_download'),
+    # Session-authenticated raw download ("Download IPA").
     path('<slug:slug>/download/', views.product_download, name='download'),
+    path('<slug:slug>/', views.product_detail, name='detail'),
 ]

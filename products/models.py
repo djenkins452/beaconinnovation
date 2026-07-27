@@ -50,6 +50,15 @@ class Product(models.Model):
         help_text="e.g. '28'. Shown alongside the version on the product page.",
     )
 
+    # iOS bundle identifier (CFBundleIdentifier), required to build the OTA
+    # install manifest. Auto-populated from the IPA's Info.plist on publish.
+    bundle_id = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="iOS bundle identifier (e.g. com.beaconinnovation.aims.field). "
+                  "Required for over-the-air install; set automatically from the IPA.",
+    )
+
     icon = models.ImageField(
         upload_to='product_icons/',
         blank=True,
@@ -128,6 +137,16 @@ class Product(models.Model):
     @property
     def has_download(self):
         return bool(self.download_file and self.download_file.name)
+
+    @property
+    def is_ios_app(self):
+        """True for iOS apps (IPA) — eligible for over-the-air install."""
+        return self.file_extension == 'ipa'
+
+    @property
+    def ota_capable(self):
+        """True when this product can be installed over-the-air right now."""
+        return self.is_ios_app and self.is_available and bool(self.bundle_id)
 
     @property
     def is_available(self):

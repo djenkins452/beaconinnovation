@@ -27,6 +27,11 @@ CSRF_TRUSTED_ORIGINS = [
     'https://beaconinnovation-production.up.railway.app',
 ]
 
+# Railway terminates TLS at its edge and forwards over http with this header.
+# Without this, request.is_secure() is False behind the proxy. Apple OTA
+# requires https end-to-end, so honoring the forwarded proto is important.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 
 # Application definition
 

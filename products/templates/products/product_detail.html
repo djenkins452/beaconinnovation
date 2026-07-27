@@ -44,12 +44,58 @@
             <hr class="my-4">
 
             {% if product.is_available %}
-            <a class="btn btn-primary btn-lg" href="{% url 'products:download' product.slug %}">
+              {% if install_url %}
+              {# iOS build: Install (OTA) is the primary action; Download IPA is secondary. #}
+              <div id="ota-actions" class="d-grid gap-2" style="max-width: 460px;" data-server-ios="{{ is_ios|yesno:'1,0' }}">
+                <a id="btn-install" class="btn btn-lg btn-primary{% if not is_ios %} d-none{% endif %}" href="{{ install_url }}">
+                  <i class="bi-apple me-2"></i>Install {{ product.name }}
+                </a>
+                <a id="btn-download" class="btn btn-lg {% if is_ios %}btn-outline-secondary{% else %}btn-primary{% endif %}" href="{% url 'products:download' product.slug %}">
+                  <i class="bi-download me-2"></i>Download IPA
+                </a>
+              </div>
+              <div class="text-muted small mt-2">
+                {{ product.filename }}{% if product.file_extension %} &middot; {{ product.file_extension|upper }}{% endif %}{% if product.bundle_id %} &middot; {{ product.bundle_id }}{% endif %}
+              </div>
+              <div id="ios-note" class="text-muted small mt-3{% if not is_ios %} d-none{% endif %}">
+                <i class="bi-info-circle me-1"></i>Open this page in <strong>Safari</strong> on your iPhone or iPad and tap
+                <strong>Install {{ product.name }}</strong>. After installing, trust the developer under
+                <strong>Settings &rarr; General &rarr; VPN &amp; Device Management</strong>.
+              </div>
+              <script>
+                (function () {
+                  var box = document.getElementById('ota-actions');
+                  var install = document.getElementById('btn-install');
+                  var download = document.getElementById('btn-download');
+                  var note = document.getElementById('ios-note');
+                  var isIOS = box.getAttribute('data-server-ios') === '1';
+                  // iPadOS usually reports a macOS UA; detect it via touch support.
+                  if (!isIOS) {
+                    isIOS = (navigator.maxTouchPoints || 0) > 1 &&
+                            /Mac|iPad/.test(navigator.platform || navigator.userAgent || '');
+                  }
+                  if (isIOS) {
+                    install.classList.remove('d-none');
+                    download.classList.remove('btn-primary');
+                    download.classList.add('btn-outline-secondary');
+                    if (note) note.classList.remove('d-none');
+                  } else {
+                    install.classList.add('d-none');
+                    download.classList.remove('btn-outline-secondary');
+                    download.classList.add('btn-primary');
+                    if (note) note.classList.add('d-none');
+                  }
+                })();
+              </script>
+              {% else %}
+              {# Non-iOS product (or OTA not configured): plain authenticated download. #}
+              <a class="btn btn-primary btn-lg" href="{% url 'products:download' product.slug %}">
                 <i class="bi-download me-2"></i>Download Latest Version
-            </a>
-            <div class="text-muted small mt-2">
+              </a>
+              <div class="text-muted small mt-2">
                 {{ product.filename }}{% if product.file_extension %} &middot; {{ product.file_extension|upper }}{% endif %}
-            </div>
+              </div>
+              {% endif %}
             {% else %}
             <button class="btn btn-secondary btn-lg" disabled>
                 <i class="bi-download me-2"></i>Download Latest Version

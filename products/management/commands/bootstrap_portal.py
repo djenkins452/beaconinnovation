@@ -130,34 +130,49 @@ class Command(BaseCommand):
         storage = aims.download_file.storage
         stored_name = aims.download_file.name
 
-        # Up to date only if the stored file physically exists and matches size.
-        up_to_date = False
+        # The stored file is current only if it physically exists and matches size.
+        file_current = False
         if stored_name:
             try:
-                up_to_date = storage.exists(stored_name) and aims.download_file.size == src_size
+                file_current = storage.exists(stored_name) and aims.download_file.size == src_size
             except Exception:
-                up_to_date = False
-
-        if up_to_date:
-            self.stdout.write(
-                f'AIMS build already published: v{aims.current_version} '
-                f'build {aims.current_build} ({src_size} bytes).')
-            return
+                file_current = False
 
         meta = read_ipa_metadata(AIMS_IPA_PATH)
+        changed = False
 
-        # Store under a stable name so the download keeps the clean filename.
-        if storage.exists(AIMS_STORED_NAME):
-            storage.delete(AIMS_STORED_NAME)
-        with open(AIMS_IPA_PATH, 'rb') as fh:
-            saved_name = storage.save(AIMS_STORED_NAME, File(fh))
+        # (Re)attach the file when missing or different (also handles Railway's
+        # ephemeral filesystem). Stored under a stable name for a clean download.
+        if not file_current:
+            if storage.exists(AIMS_STORED_NAME):
+                storage.delete(AIMS_STORED_NAME)
+            with open(AIMS_IPA_PATH, 'rb') as fh:
+                aims.download_file.name = storage.save(AIMS_STORED_NAME, File(fh))
+            changed = True
 
-        aims.download_file.name = saved_name
-        aims.current_version = meta['version']
-        aims.current_build = meta['build']
-        aims.download_enabled = True
+        # Reconcile metadata from the IPA even when the file is unchanged — this
+        # backfills fields (e.g. bundle_id) on products published before they
+        # existed, which is required for OTA install.
+        for field, value in (
+            ('current_version', meta['version']),
+            ('current_build', meta['build']),
+            ('bundle_id', meta['bundle_id']),
+        ):
+            if getattr(aims, field) != value:
+                setattr(aims, field, value)
+                changed = True
+        if not aims.download_enabled:
+            aims.download_enabled = True
+            changed = True
+
+        if not changed:
+            self.stdout.write(
+                f'AIMS build already published: v{aims.current_version} '
+                f'build {aims.current_build} ({meta["bundle_id"]}).')
+            return
+
         aims.save()
-
+        action = 'Published' if not file_current else 'Reconciled'
         self.stdout.write(self.style.SUCCESS(
-            f"Published AIMS build: v{meta['version']} build {meta['build']} "
+            f"{action} AIMS build: v{meta['version']} build {meta['build']} "
             f"({src_size} bytes, {meta['bundle_id']})"))
