@@ -5,12 +5,13 @@
 - **Release Date:** July 27, 2026
 
 ## What's New
-- First public release of AIMS Field for iPhone and iPad — fully offline Army inventory verification in the field.
-- Guided inventory sessions with search across items, packets, and readiness reports.
-- On-device signature capture with a configurable, environment-driven signing workflow.
+- Every inventory now shows its next step the same way everywhere — Start Inventory, Continue Inventory, Pending Signature, Ready for Export, then Historical.
+- Inventory an End Item by entering its serial number, then work its Bill of Materials. Any item can record an optional serial, which marks it as a single asset found.
+- Reopen a completed inventory in one step to make corrections before export, then re-approve and re-sign.
+- Review photo attachments — with pinch-to-zoom, pan, and double-tap — on signed and Historical inventories, which stay read-only.
 
 ## Bug Fixes
-- Bottom action controls no longer sit hidden behind the persistent tab bar.
+- Exported (Historical) inventories are now permanently read-only: they cannot be reopened, edited, or have their signatures removed.
 
 ## Known Issues
 - None reported.
