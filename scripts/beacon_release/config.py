@@ -20,6 +20,23 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class LegacyInstall:
+    """Temporary secondary publication target (e.g. a public /static/downloads/
+    installer used until a customer has Portal access).
+
+    It is NOT a second release artifact: only the lightweight ``install.html`` +
+    ``manifest.plist`` are published here, and the manifest points its OTA asset
+    at the canonical Portal IPA. One IPA, one SHA-256. ``enabled: false`` (or
+    omitting the block) disables it with no effect on the primary workflow.
+    """
+    enabled: bool = False
+    url_path: str = "/static/downloads"       # public path that serves the two files
+    served_dirs: tuple = ()                    # Beacon-repo dirs backing url_path
+    manifest_name: str = "manifest.plist"
+    install_page_name: str = "install.html"
+
+
+@dataclass(frozen=True)
 class ProductConfig:
     # identity
     key: str
@@ -41,6 +58,10 @@ class ProductConfig:
     poll_timeout: int
     legacy_redirects: List[str] = field(default_factory=list)
 
+    # release must come from a fully synchronized product repo (fetch + exact
+    # match to origin/<deploy_branch> + clean tree). Default on; deterministic.
+    require_sync: bool = True
+
     # portal
     show_previous_releases: bool = True
 
@@ -53,6 +74,9 @@ class ProductConfig:
     # fixed artifact filenames
     manifest_name: str = "manifest.plist"
     install_page_name: str = "install.html"
+
+    # temporary secondary publication target (optional; disabled by default)
+    legacy_install: LegacyInstall = field(default_factory=LegacyInstall)
 
     @property
     def portal_title(self) -> str:
@@ -78,6 +102,20 @@ class ProductConfig:
     def downloads_subpath(self) -> str:
         """Path component after /downloads/, e.g. 'aims' from '/downloads/aims'."""
         return self.url_path.strip("/").split("/", 1)[-1]
+
+    # ---- legacy install target URLs (only meaningful when enabled) ----
+    def legacy_url(self, filename: str) -> str:
+        base = self.base_url.rstrip("/")
+        path = self.legacy_install.url_path.rstrip("/")
+        return f"{base}{path}/{filename}"
+
+    @property
+    def legacy_install_url(self) -> str:
+        return self.legacy_url(self.legacy_install.install_page_name)
+
+    @property
+    def legacy_manifest_url(self) -> str:
+        return self.legacy_url(self.legacy_install.manifest_name)
 
 
 def load_product_config(product_repo: Path) -> ProductConfig:
@@ -117,6 +155,8 @@ def load_product_config(product_repo: Path) -> ProductConfig:
     if isinstance(legacy, str):
         legacy = [legacy]
 
+    legacy_install = _parse_legacy_install(deploy.get("legacy_install") or {})
+
     return ProductConfig(
         key=key,
         display_name=display_name,
@@ -130,10 +170,42 @@ def load_product_config(product_repo: Path) -> ProductConfig:
         deploy_branch=str(deploy.get("deploy_branch", "main")),
         poll_timeout=int(deploy.get("poll_timeout", 900)),
         legacy_redirects=[str(x).strip() for x in legacy if str(x).strip()],
+        require_sync=bool(deploy.get("require_sync", True)),
         show_previous_releases=bool(portal.get("show_previous_releases", True)),
         # optional metadata — all absent-safe
         public_name=(str(product["public_name"]).strip() if product.get("public_name") else None),
         description=(str(product["description"]).strip() if product.get("description") else None),
         icon=(str(product["icon"]).strip() if product.get("icon") else None),
         platform=(str(product.get("platform", "ios")).strip() or "ios"),
+        legacy_install=legacy_install,
+    )
+
+
+def _parse_legacy_install(raw: dict) -> LegacyInstall:
+    """Parse the optional `deploy.legacy_install` block. Absent/disabled → a
+    disabled LegacyInstall (the engine then behaves exactly as before)."""
+    enabled = bool(raw.get("enabled", False))
+    url_path = str(raw.get("url_path", "/static/downloads")).strip()
+    dirs = raw.get("served_dirs") or []
+    if isinstance(dirs, str):
+        dirs = [dirs]
+    served_dirs = tuple(str(d).strip() for d in dirs if str(d).strip())
+    if enabled:
+        if not url_path.startswith("/"):
+            raise ConfigError(
+                "release.yaml: deploy.legacy_install.url_path must start with '/' "
+                "(e.g. /static/downloads)."
+            )
+        if not served_dirs:
+            raise ConfigError(
+                "release.yaml: deploy.legacy_install.served_dirs is required when "
+                "legacy_install.enabled is true (the Beacon-repo dir(s) that back "
+                "url_path, e.g. static/downloads + staticfiles/downloads)."
+            )
+    return LegacyInstall(
+        enabled=enabled,
+        url_path=url_path,
+        served_dirs=served_dirs,
+        manifest_name=str(raw.get("manifest_name", "manifest.plist")).strip() or "manifest.plist",
+        install_page_name=str(raw.get("install_page_name", "install.html")).strip() or "install.html",
     )

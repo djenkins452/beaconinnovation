@@ -39,5 +39,18 @@ deploy:
                                  #   e.g. to preserve previously shared links:
                                  #   - /static/downloads/install.html
 
+  # legacy_install: OPTIONAL, TEMPORARY. A public unauthenticated installer page
+  #   (install.html + manifest.plist only) for users without Portal access. NOT a
+  #   second artifact — its manifest points at the canonical url_path IPA (one IPA,
+  #   one SHA-256). To retire: set enabled: false and run /release — the engine
+  #   removes the previously-published legacy files automatically (deployment state
+  #   always matches config; no manual file/dir deletion).
+  # legacy_install:
+  #   enabled: true
+  #   url_path: /static/downloads        # public path (served by WhiteNoise)
+  #   served_dirs:                        # Beacon-repo dir(s) backing url_path
+  #     - static/downloads                #   STATICFILES_DIRS source
+  #     - staticfiles/downloads           #   STATIC_ROOT (committed, served in prod)
+
 portal:
   show_previous_releases: true   # show the "Previous Releases" table on the portal
