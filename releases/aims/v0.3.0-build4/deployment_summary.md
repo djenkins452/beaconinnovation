@@ -6,9 +6,9 @@
 - **Build:** 4
 - **Bundle Identifier:** com.beaconinnovation.aims.field
 - **Minimum iOS:** 17.0
-- **SHA-256:** `a002f77e507311c0da8cdd12c4cb51a5ec5e658697988402df21d7fbda1e4cc7`
+- **SHA-256:** `050793805da3fb6028ba9aa6f61fed908c51dd44f28bec17d0a46fd0e2400388`
 - **Release Date:** July 28, 2026
-- **Deployed At:** 2026-07-28T10:08:21-04:00
+- **Deployed At:** 2026-07-28T21:20:45-04:00
 - **Install URL:** https://beacon-innovation.com/downloads/aims/install.html
 
 ## Signing
