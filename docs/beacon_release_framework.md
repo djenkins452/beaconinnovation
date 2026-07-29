@@ -106,6 +106,14 @@ implementation detail, not an entry point.
    fires if the IPA's mtime predates HEAD (the engine publishes a pre-exported IPA, so it
    cannot prove the binary was built from current source — the operator confirms).
 2. **Inspect** the IPA → app name, display name, bundle id, version, build, min iOS, signing.
+2b. **Build-number integrity** (hard gate; runs in `--dry-run` too, against the **real**
+    published `history.json`). Guarantees the universal invariant **before** anything is
+    written or committed: (a) **one build number ↔ one binary** — a build number already
+    published with *different* bytes is refused (SHA-256 mismatch); (b) **monotonic builds**
+    — the build must be strictly greater than every published build (never reused, never
+    decreased). An exact re-publish of the *identical* artifact (same build **and** same
+    SHA-256) is idempotent and allowed. This holds even if a product's own build-number
+    automation (e.g. the iOS `/release` command) is bypassed — the engine is the single gate.
 3. **Validate guards**: IPA bundle id / name must match `release.yaml`.
 4. **Stage** IPA → `downloads/<product>/` (verify copied SHA == source).
 5. **Release notes** from the product repo's git log since the last released commit
@@ -370,6 +378,8 @@ Provenance verification **does not replace** — and must not be conflated with 
 checks, each of which remains a separate hard gate:
 
 - **Version / build monotonicity** (a matching commit can still be a revert or an older build).
+  *Enforced* by the step-2b build-number integrity gate: one build number ↔ one binary, and
+  strictly-increasing builds, checked against the published `history.json`.
 - **Bundle identifier** validation.
 - **IPA signing and package inspection**.
 - **Manifest correctness**.

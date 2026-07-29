@@ -136,6 +136,7 @@ class ReleaseEngine:
         self.step_preflight_sync()  # ✓ Repo synchronized (before ANYTHING else)
         self.step_locate()      # ✓ Located latest IPA
         self.step_inspect()     # guards (bundle id / name)
+        self.step_build_integrity()  # ✓ Build unique + monotonic (never reused)
         self.step_notes()       # ✓ Generated release notes
         self.step_stage()       # ✓ Staged IPA
         self.step_sync()        # ✓ Updated manifest / install page
@@ -370,6 +371,80 @@ class ReleaseEngine:
                 f"App name mismatch: IPA CFBundleName '{ipa.app_name}' != release.yaml '{self.cfg.name}'."
             )
         self._ok(f"Inspected IPA — v{ipa.version} (Build {ipa.build}), {ipa.bundle_id}")
+
+    # -- 2b. build-number integrity ------------------------------------
+    def step_build_integrity(self) -> None:
+        """Guarantee the universal build-number invariant BEFORE anything is
+        written or committed:
+
+          * one build number maps to exactly one binary (never reused for
+            different bytes), and
+          * build numbers increase monotonically over every prior published
+            build (never reused, never decreased).
+
+        This is the platform-agnostic policy the framework promises as an
+        independent hard gate. It is enforced here, in the single publish path
+        every product passes through, so the guarantee holds even if a product's
+        own build-number automation (e.g. the iOS /release command's
+        CURRENT_PROJECT_VERSION assignment) is bypassed. The IPA is the source of
+        truth; history.json is the ledger of what has already been published.
+        Runs in dry-run too (reading the REAL published ledger, never the scratch
+        copy) so a preview faithfully reports whether the build would be accepted."""
+        history = self._published_history()
+        releases = history.get("releases", [])
+        ipa_build = str(self.ipa.build)
+
+        # An exact re-publish of the identical artifact (same build AND same
+        # bytes) is idempotent and allowed; anything else that touches an
+        # already-published build number is a violation.
+        idempotent = any(
+            str(r.get("build")) == ipa_build and r.get("sha256") == self.source_sha
+            for r in releases
+        )
+
+        # 1. one build number <-> one binary (global; across every version line)
+        for r in releases:
+            if str(r.get("build")) == ipa_build and r.get("sha256") not in (None, self.source_sha):
+                raise ReleaseError(
+                    f"Build-number reuse: build {ipa_build} was already published "
+                    f"as v{r.get('version')} with a DIFFERENT binary.\n"
+                    f"    already published SHA-256 : {r.get('sha256')}\n"
+                    f"    this IPA SHA-256          : {self.source_sha}\n"
+                    f"One build number must map to exactly one binary, and a published "
+                    f"build number can never be reused. Increment the build number "
+                    f"(CURRENT_PROJECT_VERSION), export a fresh IPA, and release again."
+                )
+
+        # 2. monotonically increasing over the highest published build
+        published = [b for b in (self._as_int(r.get("build")) for r in releases) if b is not None]
+        this_build = self._as_int(ipa_build)
+        if published and this_build is None:
+            self._warn(
+                f"IPA build '{ipa_build}' is not numeric; monotonicity cannot be "
+                f"checked numerically. Uniqueness (one build <-> one binary) still enforced."
+            )
+        elif published and this_build is not None and not idempotent:
+            highest = max(published)
+            if this_build <= highest:
+                raise ReleaseError(
+                    f"Build number not increasing: this IPA is build {ipa_build}, but "
+                    f"build {highest} is already published. Build numbers must increase "
+                    f"monotonically and may never be reused. Increment "
+                    f"CURRENT_PROJECT_VERSION above {highest}, export a fresh IPA, and "
+                    f"release again."
+                )
+
+        if idempotent:
+            self._ok(f"Build integrity — re-publishing identical build {ipa_build} (same SHA-256)")
+        else:
+            self._ok(f"Build integrity — build {ipa_build} is unique and monotonic")
+
+    @staticmethod
+    def _as_int(value) -> Optional[int]:
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
 
     # -- 5. release notes (computed early; portal embeds them) ---------
     def step_notes(self) -> None:
@@ -797,9 +872,14 @@ class ReleaseEngine:
         self._step(14, "Update deployment history")
         data = self._load_history()
         record = self._release_record()
+        # De-dupe by (version, build). step_build_integrity has already run, so the
+        # only way a matching (version, build) can still exist here is an idempotent
+        # re-publish of the IDENTICAL binary (same SHA-256) — replacing it just
+        # refreshes commit/timestamp metadata. A different binary on an existing
+        # build number never reaches this point; the gate rejects it.
         data["releases"] = [r for r in data.get("releases", [])
                             if not (r.get("version") == record["version"]
-                                    and r.get("build") == record["build"])]
+                                    and str(r.get("build")) == str(record["build"]))]
         data["releases"].insert(0, record)
         data["current"] = record
         data["product"] = self.cfg.key
@@ -1015,6 +1095,18 @@ class ReleaseEngine:
 
     def _history_path(self) -> Path:
         return self.out_releases / "history.json"
+
+    def _published_history(self) -> Dict:
+        """The REAL published ledger in the Beacon repo, independent of dry-run
+        scratch. The build-integrity gate reads this so a dry-run preview is
+        checked against what is actually published, not an empty scratch copy."""
+        p = self.beacon_repo / "releases" / self.cfg.key / "history.json"
+        if p.is_file():
+            try:
+                return json.loads(p.read_text())
+            except Exception:  # noqa: BLE001
+                pass
+        return {"product": self.cfg.key, "current": None, "releases": []}
 
     def _release_record(self) -> Dict:
         return {
