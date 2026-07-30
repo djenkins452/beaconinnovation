@@ -28,11 +28,17 @@
 # directory that actually feeds the build.
 set -euo pipefail
 
-PLIST="${TARGET_BUILD_DIR:-}/${INFOPLIST_PATH:-}"
-if [ -z "${TARGET_BUILD_DIR:-}" ] || [ -z "${INFOPLIST_PATH:-}" ] || [ ! -f "$PLIST" ]; then
-  echo "warning: provenance stamp skipped — built Info.plist not found (\$TARGET_BUILD_DIR/\$INFOPLIST_PATH)."
+# Write a DEDICATED BeaconProvenance.plist into the app bundle rather than editing
+# Info.plist. Under the modern build system Info.plist is (re)generated AFTER run-script
+# phases when GENERATE_INFOPLIST_FILE=YES, so a post-hoc Info.plist edit is overwritten.
+# A separate file is not touched by Info.plist processing, and — written here, before the
+# final CodeSign step — it is sealed inside the signed bundle (tamper-evident).
+BUNDLE_DIR="${TARGET_BUILD_DIR:-}/${CONTENTS_FOLDER_PATH:-${WRAPPER_NAME:-}}"
+if [ -z "${TARGET_BUILD_DIR:-}" ] || [ -z "$BUNDLE_DIR" ] || [ ! -d "$BUNDLE_DIR" ]; then
+  echo "warning: provenance stamp skipped — app bundle dir not found (\$TARGET_BUILD_DIR/\$CONTENTS_FOLDER_PATH)."
   exit 0
 fi
+PLIST="$BUNDLE_DIR/BeaconProvenance.plist"
 
 GIT="$(xcrun --find git 2>/dev/null || echo /usr/bin/git)"
 SRC="${SRCROOT:-$PWD}"
@@ -42,15 +48,15 @@ if [ -z "$REPO_ROOT" ]; then
   exit 0
 fi
 
-# Path scope (repo-relative). Default: SRCROOT relative to the repo root.
+# Path scope (repo-relative). Default: SRCROOT relative to the repo root, computed
+# by git itself (`--show-prefix`) so it is robust to symlinks (e.g. /tmp ->
+# /private/tmp) and path normalization — a string-prefix strip is NOT reliable here.
 if [ -n "${BEACON_SOURCE_PATHS:-}" ]; then
   PATHS="$BEACON_SOURCE_PATHS"
 else
-  case "$SRC" in
-    "$REPO_ROOT")   PATHS="." ;;
-    "$REPO_ROOT"/*) PATHS="${SRC#$REPO_ROOT/}" ;;
-    *)              PATHS="." ;;
-  esac
+  PREFIX="$("$GIT" -C "$SRC" rev-parse --show-prefix 2>/dev/null || true)"
+  PATHS="${PREFIX%/}"
+  [ -z "$PATHS" ] && PATHS="."
 fi
 
 COMMIT="$("$GIT" -C "$REPO_ROOT" rev-parse HEAD)"
@@ -81,15 +87,23 @@ rm -f "$TMP_INDEX"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ENVN="Xcode ${XCODE_VERSION_ACTUAL:-?}; macOS $(sw_vers -productVersion 2>/dev/null || echo '?')"
 
-PB=/usr/libexec/PlistBuddy
-set_key() { "$PB" -c "Set :$1 $2" "$PLIST" 2>/dev/null || "$PB" -c "Add :$1 string $2" "$PLIST"; }
-set_key BeaconSourceTree       "$FINGERPRINT"
-set_key BeaconSourcePaths      "$PATHS"
-set_key BeaconSourceCommit     "$COMMIT"
-set_key BeaconSourceClean      "$CLEAN"
-set_key BeaconSourceBranch     "$BRANCH"
-set_key BeaconBuildTimestamp   "$TS"
-set_key BeaconBuildEnvironment "$ENVN"
+xesc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BeaconSourceTree</key><string>$(xesc "$FINGERPRINT")</string>
+	<key>BeaconSourcePaths</key><string>$(xesc "$PATHS")</string>
+	<key>BeaconSourceCommit</key><string>$(xesc "$COMMIT")</string>
+	<key>BeaconSourceClean</key><string>$(xesc "$CLEAN")</string>
+	<key>BeaconSourceBranch</key><string>$(xesc "$BRANCH")</string>
+	<key>BeaconBuildTimestamp</key><string>$(xesc "$TS")</string>
+	<key>BeaconBuildEnvironment</key><string>$(xesc "$ENVN")</string>
+</dict>
+</plist>
+EOF
+plutil -lint "$PLIST" >/dev/null
 
 echo "Beacon provenance stamped: source_tree=${FINGERPRINT:0:9} paths='$PATHS' base=${COMMIT:0:9} clean=$CLEAN"
 if [ "$CLEAN" != "true" ]; then

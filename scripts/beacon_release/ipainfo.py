@@ -89,11 +89,20 @@ def inspect_ipa(ipa_path: Path, extra_dir: Optional[Path] = None) -> IPAInfo:
     """Extract metadata from ``ipa_path``. ``extra_dir`` may hold a sibling
     DistributionSummary.plist (from the Xcode export)."""
     with zipfile.ZipFile(ipa_path) as zf:
-        info_names = [n for n in zf.namelist()
-                      if fnmatch.fnmatch(n, "Payload/*.app/Info.plist")]
+        names = zf.namelist()
+        info_names = [n for n in names if fnmatch.fnmatch(n, "Payload/*.app/Info.plist")]
         if not info_names:
             raise IPAError("Could not find Payload/*.app/Info.plist inside the IPA.")
         info = plistlib.loads(zf.read(sorted(info_names, key=len)[0]))
+        # Provenance: prefer the dedicated, race-free BeaconProvenance.plist written
+        # by the stamping build phase; fall back to Info.plist keys.
+        prov_dict = info
+        prov_names = [n for n in names if fnmatch.fnmatch(n, "Payload/*.app/BeaconProvenance.plist")]
+        if prov_names:
+            try:
+                prov_dict = plistlib.loads(zf.read(sorted(prov_names, key=len)[0]))
+            except Exception:  # noqa: BLE001 - a malformed stamp falls back to none
+                prov_dict = {}
 
     ipa = IPAInfo(
         app_name=info.get("CFBundleName", ""),
@@ -102,7 +111,7 @@ def inspect_ipa(ipa_path: Path, extra_dir: Optional[Path] = None) -> IPAInfo:
         version=info.get("CFBundleShortVersionString", ""),
         build=str(info.get("CFBundleVersion", "")),
         min_ios=info.get("MinimumOSVersion", ""),
-        provenance=_read_provenance(info),
+        provenance=_read_provenance(prov_dict),
     )
     ipa.signing = _read_signing(ipa_path, ipa, extra_dir)
 
