@@ -23,8 +23,16 @@ class IPAError(Exception):
 # Provenance stamp keys, written INTO the app's Info.plist by the build/export
 # pipeline (Design Amendment 001). Kept here as the single contract shared by the
 # stamping script and the engine's verifier.
-PROV_COMMIT = "BeaconSourceCommit"        # full 40-char git SHA of the built source
-PROV_CLEAN = "BeaconSourceClean"          # "true"/"false": strict git-status-porcelain empty
+#
+# The RELEASE GATE is reproducibility, not cleanliness: the artifact identifies the
+# exact source it was built from (a git tree fingerprint over the product's source
+# paths), and the engine publishes iff that fingerprint matches a commit reachable
+# from origin/<branch>. Clean/dirty is recorded for diagnostics only — a dirty build
+# whose exact source is later committed + pushed is fully reproducible and allowed.
+PROV_SOURCE_TREE = "BeaconSourceTree"     # git tree SHA of the built source (the FINGERPRINT)
+PROV_SOURCE_PATHS = "BeaconSourcePaths"   # repo-relative path(s) the fingerprint covers
+PROV_COMMIT = "BeaconSourceCommit"        # HEAD at build time (base commit; informational)
+PROV_CLEAN = "BeaconSourceClean"          # "true"/"false": strict porcelain-empty (DIAGNOSTIC)
 PROV_BRANCH = "BeaconSourceBranch"        # branch built from (informational)
 PROV_TIMESTAMP = "BeaconBuildTimestamp"   # ISO-8601 build/archive time
 PROV_ENVIRONMENT = "BeaconBuildEnvironment"  # e.g. "Xcode 26.2; macOS 15.5" (informational)
@@ -45,16 +53,32 @@ class IPAInfo:
 
     @property
     def has_provenance(self) -> bool:
-        """A stamp is present iff it carries at least a source commit."""
+        """A stamp is present iff it carries at least a base commit."""
         return bool(self.provenance.get("commit"))
+
+    @property
+    def has_fingerprint(self) -> bool:
+        """A reproducibility fingerprint (source tree hash) is present."""
+        return bool(self.provenance.get("source_tree"))
 
     @property
     def prov_commit(self) -> str:
         return self.provenance.get("commit", "")
 
     @property
+    def prov_source_tree(self) -> str:
+        """Git tree SHA of the built source — the reproducibility fingerprint."""
+        return self.provenance.get("source_tree", "")
+
+    @property
+    def prov_source_paths(self) -> str:
+        """Repo-relative path scope the fingerprint covers (e.g. 'mobile/aims_field')."""
+        return self.provenance.get("source_paths", "")
+
+    @property
     def prov_clean(self) -> Optional[bool]:
-        """Strict cleanliness recorded at build time; None if unstamped/unparseable."""
+        """Strict cleanliness recorded at build time (DIAGNOSTIC only, not a gate);
+        None if unstamped/unparseable."""
         raw = self.provenance.get("clean")
         if raw is None:
             return None
@@ -100,7 +124,8 @@ def _read_provenance(info: dict) -> Dict[str, str]:
         prov["commit"] = commit
     if PROV_CLEAN in info:
         prov["clean"] = str(info.get(PROV_CLEAN, "")).strip()
-    for src, dst in ((PROV_BRANCH, "branch"), (PROV_TIMESTAMP, "timestamp"),
+    for src, dst in ((PROV_SOURCE_TREE, "source_tree"), (PROV_SOURCE_PATHS, "source_paths"),
+                     (PROV_BRANCH, "branch"), (PROV_TIMESTAMP, "timestamp"),
                      (PROV_ENVIRONMENT, "environment")):
         val = str(info.get(src, "")).strip()
         if val:

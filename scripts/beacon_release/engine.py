@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from config import ProductConfig
-from ipainfo import inspect_ipa, IPAInfo
+from ipainfo import inspect_ipa, IPAInfo, PROV_SOURCE_TREE
 import templates
 
 
@@ -175,6 +175,15 @@ class ReleaseEngine:
         every release reproducible from a single known commit. Skipped in dry-run
         (a preview), and overridable with deploy.require_sync: false."""
         if self.dry_run:
+            return
+        if self.cfg.require_provenance:
+            # Reproducibility (step 2c) is the authoritative gate: it verifies the
+            # artifact's source exists on origin/<branch>, which subsumes HEAD==origin
+            # and makes working-tree cleanliness irrelevant. Just refresh refs so the
+            # later lookup sees the current remote tip.
+            self._git_product("fetch", "origin", self.cfg.deploy_branch, check=False)
+            self._ok("Provenance mode — reproducibility gate (step 2c) supersedes the "
+                     "clean-tree guard; unrelated working-tree/worktree state ignored")
             return
         if not self.cfg.require_sync:
             self._ok("Sync guard disabled (deploy.require_sync: false) — proceeding")
@@ -442,10 +451,12 @@ class ReleaseEngine:
 
     def _provenance_report(self) -> str:
         """One-line provenance status for the deployment report."""
-        if self.ipa and self.ipa.has_provenance:
-            c = self.ipa.prov_commit[:9]
-            state = "clean" if self.ipa.prov_clean else f"clean={self.ipa.provenance.get('clean')!r}"
-            return f"stamped {c} ({state})"
+        if self.ipa and self.ipa.has_fingerprint:
+            # After step_provenance, self.product_commit is the reproducing commit.
+            src = self.ipa.prov_source_paths or "."
+            state = "clean" if self.ipa.prov_clean else "dirty@build"
+            return (f"reproducible from {(self.product_commit or '?')[:9]} "
+                    f"(source {src}; {state})")
         return "unstamped (step-0 clean-tree guard)"
 
     @staticmethod
@@ -457,67 +468,93 @@ class ReleaseEngine:
 
     # -- 2c. provenance verification (Design Amendment 001) ------------
     def step_provenance(self) -> None:
-        """Verify the artifact's build-time provenance stamp, when present.
+        """Answer the only question that matters: **can this exact IPA be recreated
+        from a pushed commit on origin/<branch>?**
 
-        The stamp (written into the app Info.plist by the build/export pipeline)
-        records the exact commit the binary was built from and whether that tree
-        was strictly clean. The release invariant is:
+        The artifact carries a *source fingerprint* — the git tree hash of the
+        product's source paths, captured from the exact working-tree state that was
+        compiled (committed or not). The gate: find a commit reachable from
+        origin/<branch> whose same-path tree hash equals that fingerprint. If one
+        exists, the artifact is reproducible from a pushed commit → publish, and
+        record that commit as the artifact's source. If none does → refuse.
 
-            IPA.stampedCommit == local HEAD (== origin/<branch> via the sync guard)
-            AND IPA.stampedClean == true
+        Clean/dirty is DIAGNOSTIC only. A build made from a dirty tree is perfectly
+        publishable once that exact source is committed and pushed — the fingerprint
+        then matches the new commit. Conversely, unrelated development elsewhere
+        (other files, other worktrees, later commits) never invalidates the artifact,
+        because the fingerprint is scoped to the source that actually produced it.
 
-        This validates the ARTIFACT (what was actually compiled), so unrelated
-        working-tree churn, other worktrees, and post-export edits are irrelevant
-        to it — exactly the provenance model the framework calls for.
-
-        Migration-safe: with `require_provenance` off (default), an unstamped IPA
-        still publishes under the step-0 clean-tree guard and a stamp, if present,
-        is verified as an extra gate. With `require_provenance` on, a valid stamp
-        is mandatory (unstamped or dirty artifacts are refused). The step-0 tree
-        guard is retired only later, once stamping is proven end-to-end."""
+        Migration-safe: with `require_provenance` off (default) an unstamped IPA
+        still publishes under the step-0 guard, and a fingerprint, if present, is
+        verified as a bonus. With `require_provenance` on, a reproducible fingerprint
+        is mandatory."""
         ipa = self.ipa
-        head = self.product_commit or ""
 
-        if not ipa.has_provenance:
+        if not ipa.has_fingerprint:
             if self.cfg.require_provenance:
                 raise ReleaseError(
-                    "Provenance required but this IPA carries no Beacon stamp "
-                    f"({self.cfg.deploy_branch} build must record its source commit + "
-                    "clean state). Rebuild/export with a stamping-capable pipeline, or "
-                    "set deploy.require_provenance: false during migration."
+                    "Provenance required, but this IPA carries no source fingerprint "
+                    f"({PROV_SOURCE_TREE}). Rebuild/export with the provenance stamping "
+                    "build phase installed, or set deploy.require_provenance: false during "
+                    "migration."
                 )
-            self._bullet("No provenance stamp on this IPA — relying on the step-0 "
-                         "clean-tree guard (Amendment 001 not yet wired for this product).")
+            self._bullet("No provenance fingerprint on this IPA — relying on the step-0 "
+                         "clean-tree guard (stamping not yet wired for this product).")
             return
 
-        # 1. strict cleanliness at build time
-        clean = ipa.prov_clean
-        if clean is not True:
+        if not (self.product_repo / ".git").exists():
             raise ReleaseError(
-                "Provenance: the artifact was built from a NON-CLEAN source tree "
-                f"(stamped clean={ipa.provenance.get('clean')!r}). A dirty build is not "
-                "reproducible from a commit and must never be published. Commit/stash all "
-                "changes, then archive + export a fresh build."
+                "Provenance: cannot verify reproducibility — product repo is not a git "
+                f"repository ({self.product_repo}). Release from the product's git checkout."
             )
-        # 2. built commit must match the release target (HEAD); the sync guard
-        #    separately pins HEAD == origin/<branch>.
-        stamped = ipa.prov_commit
-        if not head:
-            self._warn("Cannot compare provenance to HEAD (product repo commit unknown); "
-                       f"stamped commit is {stamped[:9]}.")
-        elif not (stamped == head or head.startswith(stamped) or stamped.startswith(head)):
+
+        fingerprint = ipa.prov_source_tree
+        paths = ipa.prov_source_paths or "."
+        branch = self.cfg.deploy_branch
+        clean_note = "clean" if ipa.prov_clean else f"dirty at build (clean={ipa.provenance.get('clean')!r})"
+
+        match = self._find_reproducing_commit(fingerprint, paths, branch)
+        if not match:
             raise ReleaseError(
-                "Provenance mismatch: the IPA was built from a different commit than the "
-                "release target.\n"
-                f"    stamped commit : {stamped}\n"
-                f"    release HEAD   : {head}\n"
-                "Export a build from the current HEAD, or release the commit the artifact "
-                "was actually built from."
+                "Not reproducible from a pushed commit: no commit on "
+                f"origin/{branch} has source ({paths}) matching this artifact.\n"
+                f"    source fingerprint : {fingerprint}\n"
+                f"    built from (base)  : {ipa.prov_commit or '?'}  [{clean_note}]\n"
+                "Commit the EXACT source that produced this build and push it to "
+                f"origin/{branch} (a dirty-tree build is fine once its source is pushed), "
+                "or rebuild from a commit already on origin/" + branch + "."
             )
-        branch = ipa.provenance.get("branch")
-        self._ok(f"Provenance verified — built from {stamped[:9]}"
-                 f"{f' ({branch})' if branch else ''}, clean tree"
-                 + (" == HEAD" if head else ""))
+
+        # The matched commit is the artifact's authoritative, reproducible source.
+        self.product_commit = match
+        short = match[:9]
+        self._ok(f"Reproducible from origin/{branch} @ {short} "
+                 f"(source {paths}, fingerprint {fingerprint[:9]}; {clean_note})")
+
+    def _find_reproducing_commit(self, fingerprint: str, paths: str,
+                                 branch: str) -> Optional[str]:
+        """Return a commit reachable from origin/<branch> whose tree over `paths`
+        equals `fingerprint`, or None. Refreshes the remote ref first, checks the
+        tip, then walks history restricted to commits that touched the paths."""
+        remote_ref = f"origin/{branch}"
+        self._git_product("fetch", "origin", branch, check=False)
+        path0 = paths.split()[0] if paths and paths != "." else None
+
+        def subtree(commit: str) -> str:
+            spec = f"{commit}:{path0}" if path0 else f"{commit}^{{tree}}"
+            return (self._git_product("rev-parse", "--verify", "-q", spec, check=False) or "").strip()
+
+        tip = (self._git_product("rev-parse", "--verify", "-q", remote_ref, check=False) or "").strip()
+        if not tip:
+            return None
+        if subtree(tip) == fingerprint:
+            return tip
+        pathspec = ["--", path0] if path0 else []
+        out = self._git_product("rev-list", "--max-count=2000", remote_ref, *pathspec, check=False) or ""
+        for commit in out.split():
+            if subtree(commit) == fingerprint:
+                return commit
+        return None
 
     # -- 5. release notes (computed early; portal embeds them) ---------
     def step_notes(self) -> None:

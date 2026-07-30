@@ -114,12 +114,13 @@ implementation detail, not an entry point.
     decreased). An exact re-publish of the *identical* artifact (same build **and** same
     SHA-256) is idempotent and allowed. This holds even if a product's own build-number
     automation (e.g. the iOS `/release` command) is bypassed — the engine is the single gate.
-2c. **Provenance verification** (Design Amendment 001; additive). If the IPA carries a
-    Beacon provenance stamp, verify `stampedCommit == HEAD` and `stampedClean == true`
-    (HEAD `== origin/<branch>` is pinned separately by step 0). A dirty-built or
-    wrong-commit artifact is **refused**. With `deploy.require_provenance: true` a valid
-    stamp is **mandatory** (unstamped IPAs refused); default **off** → unstamped IPAs
-    pass and rely on step 0.
+2c. **Provenance / reproducibility** (Design Amendment 001; additive). If the IPA carries a
+    source fingerprint (`BeaconSourceTree`), verify the artifact is **reproducible from a
+    commit on `origin/<branch>`** — i.e. some reachable commit's tree over `BeaconSourcePaths`
+    equals the fingerprint — and record that commit as the artifact's source. Not reproducible
+    → **refused** (clean/dirty is diagnostic, never the reason). With
+    `deploy.require_provenance: true` a fingerprint is **mandatory** and this **supersedes** the
+    step-0 clean-tree guard; default **off** → unstamped IPAs pass and rely on step 0.
 3. **Validate guards**: IPA bundle id / name must match `release.yaml`.
 4. **Stage** IPA → `downloads/<product>/` (verify copied SHA == source).
 5. **Release notes** from the product repo's git log since the last released commit
@@ -243,25 +244,29 @@ There is nothing to change in the engine. Install the starter kit and fill in
 
 ## Design Amendment 001 — Provenance-based publishing
 
-> **Status: Partially adopted — engine-side verification live; stamping wiring + guard
-> relaxation pending.**
-> Implemented and shipping: the engine reads a build-time provenance stamp from the
-> IPA and verifies it (**Pipeline step 2c**, `ReleaseEngine.step_provenance`); the
-> `deploy.require_provenance` config flag (default **off**); the stamp contract in
-> `ipainfo.py`; and a reusable stamping build-phase script
-> (`starter-kit/stamp_build_provenance.sh`). Because `require_provenance` defaults off
-> and verification is **additive** (a stamp, when present, is verified; when absent the
-> existing guard stands), **current behavior is unchanged** for products that have not
-> yet wired the stamp.
-> Pending per product: (1) add the stamping Run Script build phase to the Xcode target
-> so exports carry the stamp; (2) validate stamping against clean / dirty / untracked
-> scenarios; (3) flip `deploy.require_provenance: true`; (4) **only then** retire the
-> step-0 clean-tree guard and the step-1 mtime warning (exact provenance supersedes
-> them). Until a product completes (1)–(3), its **step-0 guard remains in force.**
+> **Status: Partially adopted — engine-side reproducibility verification live; stamping
+> wiring + guard relaxation pending.**
+> Implemented and shipping: the engine reads a build-time provenance stamp and, when a
+> **source fingerprint** is present, verifies the artifact is **reproducible from a commit
+> on origin/<branch>** (**Pipeline step 2c**, `ReleaseEngine.step_provenance` +
+> `_find_reproducing_commit`); the `deploy.require_provenance` flag (default **off**); the
+> stamp contract in `ipainfo.py`; and a reusable stamping build-phase script
+> (`starter-kit/stamp_build_provenance.sh`). Because `require_provenance` defaults off and
+> verification is **additive**, **current behavior is unchanged** for products that have
+> not yet wired the stamp.
+> Pending per product: (1) add the stamping Run Script build phase to the Xcode target so
+> exports carry the fingerprint; (2) validate against dirty-then-committed and
+> unrelated-churn scenarios; (3) flip `deploy.require_provenance: true` (this alone
+> **relaxes** the step-0 clean-tree guard — reproducibility supersedes it). Until a product
+> completes (1)–(2), its **step-0 guard remains in force.**
 >
-> **Stamp contract** (Info.plist keys inside the signed `.app`; single source of truth
-> is `ipainfo.py`): `BeaconSourceCommit` (full SHA), `BeaconSourceClean`
-> (`"true"`/`"false"`, strict porcelain-empty incl. untracked), `BeaconSourceBranch`,
+> **The gate is reproducibility, NOT cleanliness.** A dirty-tree build is fully publishable
+> once its exact source is committed and pushed; clean/dirty is recorded only as diagnostics.
+>
+> **Stamp contract** (Info.plist keys inside the signed `.app`; single source of truth is
+> `ipainfo.py`): `BeaconSourceTree` (git tree SHA of the source paths — **the fingerprint**),
+> `BeaconSourcePaths` (repo-relative scope), `BeaconSourceCommit` (base commit, informational),
+> `BeaconSourceClean` (`"true"`/`"false"`, **diagnostic only**), `BeaconSourceBranch`,
 > `BeaconBuildTimestamp`, `BeaconBuildEnvironment`.
 
 ### The decision
@@ -279,28 +284,34 @@ The current step-0 gate is therefore both **too strict and too weak**:
   **non-blocking** mtime warning (step 1) stands between the operator and shipping a binary
   that does not match `HEAD`.
 
-**Decision:** enforce and **capture repository cleanliness at build/export time, inside the
-artifact**, and make `/release` a **provenance verification + publication** step. Repository
-cleanliness becomes a *build/export requirement*; `/release` verifies the artifact's recorded
-provenance against the repository and publishes. This is a net **increase** in safety — it
-replaces a live-but-misdirected check with an exact, auditable artifact↔commit binding, and
-it closes the stale-IPA gap the mtime warning only flags.
+**Decision:** stamp a **source fingerprint** into the artifact at build/export time (the git
+tree hash of the product's source paths, over the exact state compiled), and make `/release`
+answer **one question — can this exact IPA be recreated from a pushed commit on
+`origin/<deploy_branch>`?** It answers yes by finding a commit reachable from the branch whose
+same-path tree hash equals the fingerprint. This is a net **increase** in safety — it replaces
+a live-but-misdirected working-tree check with an exact, auditable artifact↔commit binding, and
+it closes the stale-IPA gap the mtime warning only flags — while **not** policing repository
+state that is irrelevant to the artifact.
 
 ### The release invariant
 
 ```
-IPA.stampedCommit  ==  local HEAD  ==  origin/<deploy_branch>
-        AND
-IPA.stampedClean   ==  true
+∃ commit C reachable from origin/<deploy_branch>  such that
+        tree(C : BeaconSourcePaths)  ==  IPA.BeaconSourceTree   (the fingerprint)
 ```
 
-**"Clean" is defined strictly**: the IPA was built from a repository whose
-`git status --porcelain` output was **completely empty** — no staged, unstaged, unmerged,
-**or untracked** files. `git describe --dirty` is **insufficient** and must not be used as
-the sole determinant: it considers only tracked files, so an **untracked source file**
-(e.g. a new `.swift` referenced by the Xcode project and compiled into the build) would be
-reported "clean" while the binary contains uncommitted source. A dirty artifact — by this
-strict definition — **must never be publishable**.
+That is: **the artifact's source is present, verbatim, in a pushed commit.** When it holds, the
+release provably came from committed code that is pushed to the approved branch, and the
+published binary's source **exactly matches** that commit — regardless of the working tree's
+incidental state at publish time.
+
+**Cleanliness is diagnostic, not a gate.** `BeaconSourceClean` records whether the build tree
+was strictly clean (`git status --porcelain` empty, untracked included) purely as information.
+A build made from a *dirty* tree is fully publishable **once that exact source is committed and
+pushed** — the fingerprint then matches the new commit. This is the key correction over the
+earlier draft, which wrongly made `stampedClean == true` a hard gate and would have permanently
+failed a reproducible dirty-then-committed release. A build whose source matches **no** pushed
+commit **must never be publishable**.
 
 When the invariant holds, the release provably satisfies all four properties simultaneously:
 the IPA came from **committed** code; that commit is **pushed** to the approved branch; the
@@ -426,37 +437,40 @@ equality that broke and the remedy.
 ### Migration sequence
 
 Adopt in this order. **Each step strengthens or holds safety; the global clean-working-tree
-guard (step 0) is only relaxed at the very end, after its replacement is proven.**
+guard (step 0) is only relaxed after its replacement — the reproducibility gate — is proven.**
 
-1. Add **build-time provenance stamping** (commit, clean/dirty, timestamp, environment).
-2. **Validate stamping** against clean, dirty, and **untracked-source** scenarios.
-3. Add **post-build source-stability verification** (the TOCTOU pre/post re-check).
-4. Add **publish-time provenance inspection** and the equality checks (commit == HEAD ==
-   origin; clean == true; fail-closed on missing stamp).
-5. Replace **repository-wide staging** with **explicit release-owned-path staging**.
-6. Add **write-outside-owned-set detection** (fail loudly).
-7. **Preserve** all existing version, SHA, manifest, and production-verification gates.
-8. **Only after all prior controls are working and verified**, relax the global
-   clean-working-tree requirement at **publish** time (retire step 0's tree check and the
-   step-1 mtime warning, which exact SHA equality supersedes).
+1. Add **build-time source-fingerprint stamping** (`BeaconSourceTree` over the source paths,
+   plus base commit, clean/dirty **as diagnostics**, timestamp, environment). *(done)*
+2. **Validate** the fingerprint against dirty-then-committed and unrelated-churn scenarios. *(done)*
+3. Add **publish-time reproducibility inspection** (step 2c): find a commit reachable from
+   `origin/<branch>` whose tree over `BeaconSourcePaths` equals the fingerprint; fail-closed on
+   a missing fingerprint when `require_provenance`. *(done)*
+4. Replace **repository-wide staging** with **explicit release-owned-path staging**.
+5. Add **write-outside-owned-set detection** (fail loudly).
+6. **Preserve** all existing version, SHA, manifest, and production-verification gates.
+7. Per product, flip **`deploy.require_provenance: true`** — this makes the fingerprint
+   mandatory and **relaxes** step 0 (the reproducibility gate proves origin membership, so
+   working-tree cleanliness and the step-1 mtime warning become moot).
 
-Until step 8, the **existing strict clean-tree guard remains in force.**
+Until a product flips `require_provenance`, its **existing strict clean-tree guard remains in
+force.**
 
 ### Acceptance criteria
 
 The amendment is fully adopted when **all** hold:
 
-- [ ] Every produced IPA carries a parseable stamp: full commit SHA, clean/dirty (strict,
-      `git status --porcelain`-based, untracked included), build timestamp, and build-environment
-      metadata where practical.
-- [ ] Build/export **refuses to stamp clean** when the tree is dirty by the strict definition,
-      **including** when the only dirt is an untracked source file.
-- [ ] Build/export performs the **pre- and post-archive** cleanliness + `HEAD` re-check and
-      **rejects** the artifact on any change during archive.
-- [ ] `/release` **publishes** with a valid provenant IPA **even when** the working tree
-      contains unrelated parallel-session changes.
-- [ ] `/release` **refuses** on: commit ≠ HEAD, HEAD ≠ origin, stamped clean = false, missing/
-      unparseable stamp, or a modified release-owned path — each with a self-contained report.
+- [ ] Every produced IPA carries a parseable stamp: source fingerprint (`BeaconSourceTree`) +
+      path scope, base commit, clean/dirty (strict, `git status --porcelain`-based, untracked
+      included) **as diagnostics**, build timestamp, and build-environment metadata where practical.
+- [ ] The fingerprint is computed over the **exact compiled source state** (tracked + untracked,
+      `.gitignore` respected) so that committing that source verbatim yields a matching commit tree.
+- [ ] `/release` **publishes** with a reproducible IPA **even when** the working tree contains
+      unrelated parallel-session changes, other active worktrees, or later commits.
+- [ ] `/release` **publishes a dirty-tree build once its exact source is committed and pushed**
+      (clean/dirty is never the deciding factor).
+- [ ] `/release` **refuses** on: no commit on `origin/<branch>` reproduces the fingerprint;
+      missing/unparseable fingerprint when `require_provenance`; a build/version integrity failure;
+      or a modified release-owned path — each with a self-contained report.
 - [ ] The engine stages/writes/deletes **only** declared release-owned paths, uses **no**
       repository-wide staging, and **fails loudly** on any write outside the owned set.
 - [ ] All independent gates (version monotonicity, bundle id, signing, manifest, production
