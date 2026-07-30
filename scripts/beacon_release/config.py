@@ -62,6 +62,14 @@ class ProductConfig:
     # match to origin/<deploy_branch> + clean tree). Default on; deterministic.
     require_sync: bool = True
 
+    # Provenance-based publishing (Design Amendment 001). When the exported IPA
+    # carries a Beacon provenance stamp, the engine verifies it (built commit ==
+    # HEAD == origin/<branch>, and clean == true). `require_provenance` makes a
+    # valid stamp MANDATORY — an unstamped or dirty artifact is then refused.
+    # Default off during migration: unstamped IPAs still publish under the existing
+    # step-0 clean-tree guard, and a stamp, when present, is verified as a bonus.
+    require_provenance: bool = False
+
     # portal
     show_previous_releases: bool = True
 
@@ -171,6 +179,7 @@ def load_product_config(product_repo: Path) -> ProductConfig:
         poll_timeout=int(deploy.get("poll_timeout", 900)),
         legacy_redirects=[str(x).strip() for x in legacy if str(x).strip()],
         require_sync=bool(deploy.get("require_sync", True)),
+        require_provenance=bool(deploy.get("require_provenance", False)),
         show_previous_releases=bool(portal.get("show_previous_releases", True)),
         # optional metadata — all absent-safe
         public_name=(str(product["public_name"]).strip() if product.get("public_name") else None),

@@ -20,6 +20,16 @@ class IPAError(Exception):
     pass
 
 
+# Provenance stamp keys, written INTO the app's Info.plist by the build/export
+# pipeline (Design Amendment 001). Kept here as the single contract shared by the
+# stamping script and the engine's verifier.
+PROV_COMMIT = "BeaconSourceCommit"        # full 40-char git SHA of the built source
+PROV_CLEAN = "BeaconSourceClean"          # "true"/"false": strict git-status-porcelain empty
+PROV_BRANCH = "BeaconSourceBranch"        # branch built from (informational)
+PROV_TIMESTAMP = "BeaconBuildTimestamp"   # ISO-8601 build/archive time
+PROV_ENVIRONMENT = "BeaconBuildEnvironment"  # e.g. "Xcode 26.2; macOS 15.5" (informational)
+
+
 @dataclass
 class IPAInfo:
     app_name: str            # CFBundleName
@@ -30,6 +40,25 @@ class IPAInfo:
     min_ios: str             # MinimumOSVersion
     architectures: List[str] = field(default_factory=list)
     signing: Dict[str, str] = field(default_factory=dict)
+    # Provenance stamp read from the app Info.plist (empty dict if unstamped).
+    provenance: Dict[str, str] = field(default_factory=dict)
+
+    @property
+    def has_provenance(self) -> bool:
+        """A stamp is present iff it carries at least a source commit."""
+        return bool(self.provenance.get("commit"))
+
+    @property
+    def prov_commit(self) -> str:
+        return self.provenance.get("commit", "")
+
+    @property
+    def prov_clean(self) -> Optional[bool]:
+        """Strict cleanliness recorded at build time; None if unstamped/unparseable."""
+        raw = self.provenance.get("clean")
+        if raw is None:
+            return None
+        return str(raw).strip().lower() in ("true", "1", "yes")
 
 
 def inspect_ipa(ipa_path: Path, extra_dir: Optional[Path] = None) -> IPAInfo:
@@ -49,6 +78,7 @@ def inspect_ipa(ipa_path: Path, extra_dir: Optional[Path] = None) -> IPAInfo:
         version=info.get("CFBundleShortVersionString", ""),
         build=str(info.get("CFBundleVersion", "")),
         min_ios=info.get("MinimumOSVersion", ""),
+        provenance=_read_provenance(info),
     )
     ipa.signing = _read_signing(ipa_path, ipa, extra_dir)
 
@@ -58,6 +88,24 @@ def inspect_ipa(ipa_path: Path, extra_dir: Optional[Path] = None) -> IPAInfo:
     if missing:
         raise IPAError(f"IPA Info.plist missing required keys: {', '.join(missing)}")
     return ipa
+
+
+def _read_provenance(info: dict) -> Dict[str, str]:
+    """Extract the Beacon provenance stamp from the app Info.plist. Returns a
+    normalized dict (empty if the app was built without the stamping build phase —
+    the pre-Amendment-001 case, handled gracefully by the engine)."""
+    prov: Dict[str, str] = {}
+    commit = str(info.get(PROV_COMMIT, "")).strip()
+    if commit:
+        prov["commit"] = commit
+    if PROV_CLEAN in info:
+        prov["clean"] = str(info.get(PROV_CLEAN, "")).strip()
+    for src, dst in ((PROV_BRANCH, "branch"), (PROV_TIMESTAMP, "timestamp"),
+                     (PROV_ENVIRONMENT, "environment")):
+        val = str(info.get(src, "")).strip()
+        if val:
+            prov[dst] = val
+    return prov
 
 
 def _read_signing(ipa_path: Path, ipa: IPAInfo, extra_dir: Optional[Path]) -> Dict[str, str]:

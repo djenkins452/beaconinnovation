@@ -137,6 +137,7 @@ class ReleaseEngine:
         self.step_locate()      # ✓ Located latest IPA
         self.step_inspect()     # guards (bundle id / name)
         self.step_build_integrity()  # ✓ Build unique + monotonic (never reused)
+        self.step_provenance()  # ✓ Artifact built from HEAD, clean (when stamped)
         self.step_notes()       # ✓ Generated release notes
         self.step_stage()       # ✓ Staged IPA
         self.step_sync()        # ✓ Updated manifest / install page
@@ -439,12 +440,84 @@ class ReleaseEngine:
         else:
             self._ok(f"Build integrity — build {ipa_build} is unique and monotonic")
 
+    def _provenance_report(self) -> str:
+        """One-line provenance status for the deployment report."""
+        if self.ipa and self.ipa.has_provenance:
+            c = self.ipa.prov_commit[:9]
+            state = "clean" if self.ipa.prov_clean else f"clean={self.ipa.provenance.get('clean')!r}"
+            return f"stamped {c} ({state})"
+        return "unstamped (step-0 clean-tree guard)"
+
     @staticmethod
     def _as_int(value) -> Optional[int]:
         try:
             return int(str(value).strip())
         except (TypeError, ValueError):
             return None
+
+    # -- 2c. provenance verification (Design Amendment 001) ------------
+    def step_provenance(self) -> None:
+        """Verify the artifact's build-time provenance stamp, when present.
+
+        The stamp (written into the app Info.plist by the build/export pipeline)
+        records the exact commit the binary was built from and whether that tree
+        was strictly clean. The release invariant is:
+
+            IPA.stampedCommit == local HEAD (== origin/<branch> via the sync guard)
+            AND IPA.stampedClean == true
+
+        This validates the ARTIFACT (what was actually compiled), so unrelated
+        working-tree churn, other worktrees, and post-export edits are irrelevant
+        to it — exactly the provenance model the framework calls for.
+
+        Migration-safe: with `require_provenance` off (default), an unstamped IPA
+        still publishes under the step-0 clean-tree guard and a stamp, if present,
+        is verified as an extra gate. With `require_provenance` on, a valid stamp
+        is mandatory (unstamped or dirty artifacts are refused). The step-0 tree
+        guard is retired only later, once stamping is proven end-to-end."""
+        ipa = self.ipa
+        head = self.product_commit or ""
+
+        if not ipa.has_provenance:
+            if self.cfg.require_provenance:
+                raise ReleaseError(
+                    "Provenance required but this IPA carries no Beacon stamp "
+                    f"({self.cfg.deploy_branch} build must record its source commit + "
+                    "clean state). Rebuild/export with a stamping-capable pipeline, or "
+                    "set deploy.require_provenance: false during migration."
+                )
+            self._bullet("No provenance stamp on this IPA — relying on the step-0 "
+                         "clean-tree guard (Amendment 001 not yet wired for this product).")
+            return
+
+        # 1. strict cleanliness at build time
+        clean = ipa.prov_clean
+        if clean is not True:
+            raise ReleaseError(
+                "Provenance: the artifact was built from a NON-CLEAN source tree "
+                f"(stamped clean={ipa.provenance.get('clean')!r}). A dirty build is not "
+                "reproducible from a commit and must never be published. Commit/stash all "
+                "changes, then archive + export a fresh build."
+            )
+        # 2. built commit must match the release target (HEAD); the sync guard
+        #    separately pins HEAD == origin/<branch>.
+        stamped = ipa.prov_commit
+        if not head:
+            self._warn("Cannot compare provenance to HEAD (product repo commit unknown); "
+                       f"stamped commit is {stamped[:9]}.")
+        elif not (stamped == head or head.startswith(stamped) or stamped.startswith(head)):
+            raise ReleaseError(
+                "Provenance mismatch: the IPA was built from a different commit than the "
+                "release target.\n"
+                f"    stamped commit : {stamped}\n"
+                f"    release HEAD   : {head}\n"
+                "Export a build from the current HEAD, or release the commit the artifact "
+                "was actually built from."
+            )
+        branch = ipa.provenance.get("branch")
+        self._ok(f"Provenance verified — built from {stamped[:9]}"
+                 f"{f' ({branch})' if branch else ''}, clean tree"
+                 + (" == HEAD" if head else ""))
 
     # -- 5. release notes (computed early; portal embeds them) ---------
     def step_notes(self) -> None:
@@ -902,6 +975,7 @@ class ReleaseEngine:
             "Railway Status": "pushed — deploying in background" if self.deploy else "not deployed",
             "Deployment Date": self.deployed_at,
             "SHA-256": self.source_sha,
+            "Provenance": self._provenance_report(),
             "Production Verification": "run '/release verify'" if self.deploy else "n/a",
             "Install URL": self.cfg.install_url,
         }

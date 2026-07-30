@@ -114,6 +114,12 @@ implementation detail, not an entry point.
     decreased). An exact re-publish of the *identical* artifact (same build **and** same
     SHA-256) is idempotent and allowed. This holds even if a product's own build-number
     automation (e.g. the iOS `/release` command) is bypassed — the engine is the single gate.
+2c. **Provenance verification** (Design Amendment 001; additive). If the IPA carries a
+    Beacon provenance stamp, verify `stampedCommit == HEAD` and `stampedClean == true`
+    (HEAD `== origin/<branch>` is pinned separately by step 0). A dirty-built or
+    wrong-commit artifact is **refused**. With `deploy.require_provenance: true` a valid
+    stamp is **mandatory** (unstamped IPAs refused); default **off** → unstamped IPAs
+    pass and rely on step 0.
 3. **Validate guards**: IPA bundle id / name must match `release.yaml`.
 4. **Stage** IPA → `downloads/<product>/` (verify copied SHA == source).
 5. **Release notes** from the product repo's git log since the last released commit
@@ -237,12 +243,26 @@ There is nothing to change in the engine. Install the starter kit and fill in
 
 ## Design Amendment 001 — Provenance-based publishing
 
-> **Status: Proposed — design only. Not yet implemented.**
-> Until *every* migration step in this amendment is complete and verified, the current
-> strict clean-working-tree preflight (**Pipeline step 0**) and the mtime freshness
-> **warning** (**step 1**) remain in force, unchanged. This section defines the *target*
-> architecture and the order in which it may safely be adopted; it changes no behavior
-> on its own.
+> **Status: Partially adopted — engine-side verification live; stamping wiring + guard
+> relaxation pending.**
+> Implemented and shipping: the engine reads a build-time provenance stamp from the
+> IPA and verifies it (**Pipeline step 2c**, `ReleaseEngine.step_provenance`); the
+> `deploy.require_provenance` config flag (default **off**); the stamp contract in
+> `ipainfo.py`; and a reusable stamping build-phase script
+> (`starter-kit/stamp_build_provenance.sh`). Because `require_provenance` defaults off
+> and verification is **additive** (a stamp, when present, is verified; when absent the
+> existing guard stands), **current behavior is unchanged** for products that have not
+> yet wired the stamp.
+> Pending per product: (1) add the stamping Run Script build phase to the Xcode target
+> so exports carry the stamp; (2) validate stamping against clean / dirty / untracked
+> scenarios; (3) flip `deploy.require_provenance: true`; (4) **only then** retire the
+> step-0 clean-tree guard and the step-1 mtime warning (exact provenance supersedes
+> them). Until a product completes (1)–(3), its **step-0 guard remains in force.**
+>
+> **Stamp contract** (Info.plist keys inside the signed `.app`; single source of truth
+> is `ipainfo.py`): `BeaconSourceCommit` (full SHA), `BeaconSourceClean`
+> (`"true"`/`"false"`, strict porcelain-empty incl. untracked), `BeaconSourceBranch`,
+> `BeaconBuildTimestamp`, `BeaconBuildEnvironment`.
 
 ### The decision
 
@@ -447,9 +467,9 @@ The amendment is fully adopted when **all** hold:
 
 ### Open design decisions (require approval before implementation)
 
-1. **Stamp location & format** — Info.plist keys vs. a dedicated build-info resource, in both
-   cases **inside the signed `.app` bundle** for tamper-evidence. (Recommendation: inside the
-   signed bundle.)
+1. **Stamp location & format** — ✅ **Decided: Info.plist keys inside the signed `.app`**
+   (`BeaconSource*` / `BeaconBuild*`, contract in `ipainfo.py`). Chosen for tamper-evidence
+   (covered by the code signature) and zero-dependency reads (stdlib `plistlib`).
 2. **How the build guarantees source immutability during archive** — a pre/post
    porcelain+`HEAD` comparison around Xcode's archive, vs. building from an isolated clean
    checkout / `git worktree`. (Determines how robustly the TOCTOU window is closed.)
