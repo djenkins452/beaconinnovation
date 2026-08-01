@@ -109,8 +109,8 @@
             <h1>AIMS Field</h1>
             <p class="desc">Offline Army inventory verification for iPhone and iPad.</p>
             <p class="meta">
-                Version <strong>0.4.0</strong> &middot; Build <strong>8</strong><br>
-                Released July 31, 2026
+                Version <strong>0.4.0</strong> &middot; Build <strong>9</strong><br>
+                Released August 1, 2026
             </p>
         </header>
 
@@ -122,7 +122,17 @@
         <section class="notes">
             <h2>What's New</h2>
             <ul>
-                <li>Live Replication: share a completed Inventory Event to another device locally and fully offline — read-only — so others can review the record without a network, server, or account.</li>
+                <li>SLOC Workspaces: every operational surface — inventories, shortages, and reports — is now scoped to your current SLOC, with no cross-SLOC leakage.</li>
+                <li>Planner calendar supports multi-date selection, so an Inventory Event can be scheduled across several days at once.</li>
+                <li>Importing a Serial Number List now seeds the Inventory Event's FROM from the list's "TO:".</li>
+            </ul>
+        </section>
+
+        <section class="notes">
+            <h2>Bug Fixes</h2>
+            <ul>
+                <li>Inventory card second line now always shows the unit, never the equipment (includes a data migration).</li>
+                <li>Shortage and SRH filters list each holder exactly once (distinct by person).</li>
             </ul>
         </section>
 
@@ -137,6 +147,7 @@
             <h2>Previous Releases</h2>
             <table>
                 <tr><th>Version</th><th>Build</th><th>Released</th></tr>
+                <tr><td>0.4.0</td><td>8</td><td>July 31, 2026</td></tr>
                 <tr><td>0.4.0</td><td>7</td><td>July 31, 2026</td></tr>
                 <tr><td>0.4.0</td><td>6</td><td>July 30, 2026</td></tr>
                 <tr><td>0.4.0</td><td>5</td><td>July 30, 2026</td></tr>
