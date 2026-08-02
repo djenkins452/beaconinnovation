@@ -109,8 +109,8 @@
             <h1>AIMS Field</h1>
             <p class="desc">Offline Army inventory verification for iPhone and iPad.</p>
             <p class="meta">
-                Version <strong>0.4.0</strong> &middot; Build <strong>9</strong><br>
-                Released August 1, 2026
+                Version <strong>0.4.0</strong> &middot; Build <strong>10</strong><br>
+                Released August 2, 2026
             </p>
         </header>
 
@@ -122,17 +122,19 @@
         <section class="notes">
             <h2>What's New</h2>
             <ul>
-                <li>SLOC Workspaces: every operational surface — inventories, shortages, and reports — is now scoped to your current SLOC, with no cross-SLOC leakage.</li>
-                <li>Planner calendar supports multi-date selection, so an Inventory Event can be scheduled across several days at once.</li>
-                <li>Importing a Serial Number List now seeds the Inventory Event's FROM from the list's "TO:".</li>
+                <li>New Commander and Supply dashboards driven by one Operational Metrics Engine, so every number shares a single definition: a Commander Live View with live serial accountability, and a Supply "Inventory Metrics" review surface (six Findings tiles) with Shortages as a drill-down.</li>
+                <li>Home is now a Working-Scope dashboard: choose All SLOCs or a single SLOC, with badges that represent the primary unit of work — no separate Inventory Event switcher.</li>
+                <li>Clearer SLOC Inventory architecture: explicit SLOC → Inventory Event → BOM selection, with the Inventory Event as the execution boundary.</li>
+                <li>Live Replication now pairs devices with discovery + PIN authorization and an app-wide approval prompt.</li>
+                <li>iOS and iPadOS 16 support.</li>
             </ul>
         </section>
 
         <section class="notes">
             <h2>Bug Fixes</h2>
             <ul>
-                <li>Inventory card second line now always shows the unit, never the equipment (includes a data migration).</li>
-                <li>Shortage and SRH filters list each holder exactly once (distinct by person).</li>
+                <li>Fixed an imported event that could be stranded in the wrong Workspace (0-of-0 regression).</li>
+                <li>Live Replication handshake reliability fix.</li>
             </ul>
         </section>
 
@@ -147,6 +149,7 @@
             <h2>Previous Releases</h2>
             <table>
                 <tr><th>Version</th><th>Build</th><th>Released</th></tr>
+                <tr><td>0.4.0</td><td>9</td><td>August 1, 2026</td></tr>
                 <tr><td>0.4.0</td><td>8</td><td>July 31, 2026</td></tr>
                 <tr><td>0.4.0</td><td>7</td><td>July 31, 2026</td></tr>
                 <tr><td>0.4.0</td><td>6</td><td>July 30, 2026</td></tr>
@@ -165,7 +168,7 @@
         </p>
 
         <footer>
-            com.beaconinnovation.aims.field &middot; requires iOS 17.0+<br>
+            com.beaconinnovation.aims.field &middot; requires iOS 16.0+<br>
             Beacon Innovation LLC
         </footer>
     </div>
