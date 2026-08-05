@@ -109,8 +109,8 @@
             <h1>AIMS Field</h1>
             <p class="desc">Offline Army inventory verification for iPhone and iPad.</p>
             <p class="meta">
-                Version <strong>0.4.0</strong> &middot; Build <strong>10</strong><br>
-                Released August 2, 2026
+                Version <strong>0.4.0</strong> &middot; Build <strong>11</strong><br>
+                Released August 4, 2026
             </p>
         </header>
 
@@ -122,19 +122,18 @@
         <section class="notes">
             <h2>What's New</h2>
             <ul>
-                <li>New Commander and Supply dashboards driven by one Operational Metrics Engine, so every number shares a single definition: a Commander Live View with live serial accountability, and a Supply "Inventory Metrics" review surface (six Findings tiles) with Shortages as a drill-down.</li>
-                <li>Home is now a Working-Scope dashboard: choose All SLOCs or a single SLOC, with badges that represent the primary unit of work — no separate Inventory Event switcher.</li>
-                <li>Clearer SLOC Inventory architecture: explicit SLOC → Inventory Event → BOM selection, with the Inventory Event as the execution boundary.</li>
-                <li>Live Replication now pairs devices with discovery + PIN authorization and an app-wide approval prompt.</li>
-                <li>iOS and iPadOS 16 support.</li>
+                <li>Serial Accountability: a dedicated dashboard with a master serial register, status chips, four review tiles, and a searchable drill-down — plus an investigative Serial Detail view with a progress bar and a Recently Verified list.</li>
+                <li>Completed BOMs now render directly as an Army Component Listing / Hand Receipt, and the exported binder emits that completed hand receipt with signatures.</li>
+                <li>A new app-wide Army-green surface system, with Home as a workflow launcher and the Shortages tab as the Inventory Metrics review center.</li>
+                <li>Continuous execution now spans the whole Inventory Event — no premature "Complete" after one of several BOMs.</li>
             </ul>
         </section>
 
         <section class="notes">
             <h2>Bug Fixes</h2>
             <ul>
-                <li>Fixed an imported event that could be stranded in the wrong Workspace (0-of-0 regression).</li>
-                <li>Live Replication handshake reliability fix.</li>
+                <li>Fixed the Inventory Event deletion lifecycle — no orphaned Planner blocks or "Plan Drifted" banner.</li>
+                <li>Fixed an exported-BOM regression so the binder reliably emits the completed hand receipt with signatures.</li>
             </ul>
         </section>
 
@@ -149,6 +148,7 @@
             <h2>Previous Releases</h2>
             <table>
                 <tr><th>Version</th><th>Build</th><th>Released</th></tr>
+                <tr><td>0.4.0</td><td>10</td><td>August 2, 2026</td></tr>
                 <tr><td>0.4.0</td><td>9</td><td>August 1, 2026</td></tr>
                 <tr><td>0.4.0</td><td>8</td><td>July 31, 2026</td></tr>
                 <tr><td>0.4.0</td><td>7</td><td>July 31, 2026</td></tr>
