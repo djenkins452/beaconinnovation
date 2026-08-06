@@ -1,0 +1,24 @@
+{
+  "product": "aims",
+  "display_name": "AIMS Field",
+  "public_name": "AIMS Field",
+  "description": "Offline Army inventory verification for iPhone and iPad.",
+  "icon": null,
+  "platform": "ios",
+  "version": "0.4.0",
+  "build": "12",
+  "bundle_id": "com.beaconinnovation.aims.field",
+  "min_ios": "16.0",
+  "sha256": "f720ad6ec9155b8730f944b3820bdf0efbac7bb7da4bd87c53b8311fd83f7bdd",
+  "commit": null,
+  "product_commit": "fd3217101f7c4b75d5fc8fce3464629c14ed984d",
+  "deployed_at": "2026-08-06T08:19:55-04:00",
+  "release_date": "August 6, 2026",
+  "archive_dir": "releases/aims/v0.4.0-build12",
+  "install_url": "https://beacon-innovation.com/downloads/aims/install.html",
+  "signing": {
+    "team": "PWRXQ69747",
+    "profile": "iOS Team Ad Hoc Provisioning Profile: com.beaconinnovation.aims.field",
+    "profile_expires": "2027-07-26 22:29:54"
+  }
+}
