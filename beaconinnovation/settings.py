@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import dj_database_url
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -55,6 +57,8 @@ INSTALLED_APPS = [
     'finance',
     'products',
     'distribution',
+    # Enterprise Platform (incubated here; own DB + own /platform/ route).
+    'aegis.core',
     'whitenoise.runserver_nostatic',
 ]
 
@@ -65,6 +69,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Resolves platform tenant + platform user for /platform/ requests only.
+    # Must run after AuthenticationMiddleware (BeaconSessionProvider reads
+    # request.user). No-ops for all non-platform (Beacon) requests.
+    'aegis.core.middleware.TenantMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -94,11 +102,31 @@ WSGI_APPLICATION = 'beaconinnovation.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
+    # Beacon's existing database — UNCHANGED by the Enterprise Platform work.
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Enterprise Platform database (decision B1): a DEDICATED PostgreSQL database,
+# separate from Beacon's. There is intentionally NO SQLite fallback — platform
+# development and production both use PostgreSQL. When PLATFORM_DATABASE_URL is
+# unset the platform DB is simply absent (Beacon still runs normally); any
+# platform operation then fails loudly rather than silently using the wrong DB.
+PLATFORM_DATABASE_URL = os.environ.get('PLATFORM_DATABASE_URL')
+if PLATFORM_DATABASE_URL:
+    DATABASES['platform'] = dj_database_url.parse(
+        PLATFORM_DATABASE_URL, conn_max_age=600
+    )
+
+# The router is the enforced boundary between Beacon and the platform.
+DATABASE_ROUTERS = ['aegis.core.routers.PlatformRouter']
+
+# Enterprise Platform configuration. During single-tenant incubation the active
+# tenant is resolved by this code; the mechanism is already multi-tenant.
+PLATFORM_URL_PREFIX = '/platform/'
+PLATFORM_TENANT_CODE = os.environ.get('PLATFORM_TENANT_CODE', 'BEACON')
 
 
 # Password validation

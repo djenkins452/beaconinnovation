@@ -582,6 +582,44 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-08-07
+
+### Enterprise Platform — Phase 0 (Foundation only; no business features)
+- Objective: make the architectural boundaries real and prove them. Incubated
+  inside Beacon, backed by a DEDICATED PostgreSQL database, multi-tenant from day
+  one, platform-owned identity + RBAC + wired immutable audit, behind a gated
+  `/platform/` shell. Beacon = Tenant #1.
+- New package `aegis/` (internal name only; user-facing = "Enterprise Platform"):
+  - `aegis/urls.py`, `aegis/core/` (apps, fields, exceptions, context, managers,
+    routers, models, audit, constants, middleware, views, templates, static)
+  - `aegis/core/auth/` (base + registry, BeaconSessionProvider, access control)
+  - `aegis/core/management/commands/seed_platform_tenant.py` (idempotent)
+  - `aegis/core/tests/` (router, tenant scoping, audit, access control, seed,
+    extraction guard)
+- Files modified: `beaconinnovation/settings.py` (2nd DB via PLATFORM_DATABASE_URL,
+  DATABASE_ROUTERS, INSTALLED_APPS += aegis.core, TenantMiddleware, PLATFORM_*
+  settings), `beaconinnovation/urls.py` (`/platform/` before website catch-all),
+  `requirements.txt` (psycopg[binary], dj-database-url), `Procfile`
+  (per-DB migrate + seed, guarded by PLATFORM_DATABASE_URL).
+- Migrations: `aegis_core/0001_initial` — applied to the `platform` database ONLY
+  (router isolates it; Beacon's default DB untouched, no aegis tables in SQLite).
+- Isolation: with `PLATFORM_DATABASE_URL` unset, Beacon runs normally and
+  `/platform/` fails closed (403) instead of raising `ConnectionDoesNotExist`
+  (`TenantMiddleware` short-circuits when the platform DB is not configured).
+- Tests: 28 new aegis tests (all pass on PostgreSQL). Beacon suites: 489/490 pass;
+  the 1 failure (`products...test_publishes_committed_aims_build`) is PRE-EXISTING
+  and unrelated (verified on baseline with Phase 0 changes stashed).
+- Deploy/Railway: requires a NEW managed Postgres exposed as `PLATFORM_DATABASE_URL`
+  before deploy (Procfile skips platform steps until it is set). See deploy guide.
+- Docs: `docs/architecture/PHASE_0_IMPLEMENTATION_PLAN.md` (status → implemented,
+  pending review); proposal §K records approved decisions B1–B4.
+- Notes: DO NOT proceed to Phase 1 until reviewed/approved. No Employee, Credential,
+  Certificate, Badging, issuance client, PKI, or hardware code was written.
+- Pre-existing tech debt recorded (not fixed here, per scope): `STATICFILES_STOREAGE`
+  typo in settings; `products` AIMS build-availability test failure.
+
+---
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 

@@ -1,1 +1,1 @@
-web: python manage.py migrate && python manage.py create_wlj_superuser && python manage.py bootstrap_portal && gunicorn beaconinnovation.wsgi --log-file -
+web: python manage.py migrate && { [ -z "$PLATFORM_DATABASE_URL" ] || python manage.py migrate --database=platform; } && python manage.py create_wlj_superuser && python manage.py bootstrap_portal && { [ -z "$PLATFORM_DATABASE_URL" ] || python manage.py seed_platform_tenant; } && gunicorn beaconinnovation.wsgi --log-file -
