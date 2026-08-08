@@ -296,4 +296,61 @@ Cloudinary handles backup for uploaded files. Configure Cloudinary backup settin
 
 ---
 
-*Last updated: 2026-01-08*
+## Enterprise Platform — dedicated PostgreSQL (Phase 0+)
+
+The Enterprise Platform (`aegis`, mounted at `/platform/`) uses its **own**
+PostgreSQL database, separate from Beacon's. It is configured via a single
+environment variable and isolated by `aegis.core.routers.PlatformRouter`.
+
+### Railway actions (one-time, before deploying the Phase 0 branch)
+
+1. **Provision a new PostgreSQL service** in the Railway project (do NOT reuse
+   Beacon's database). Give it its own credentials.
+2. Set **`PLATFORM_DATABASE_URL`** on the web service to that database's
+   connection string (`postgresql://…`). Keep it distinct from `DATABASE_URL`.
+3. (Optional) Set `PLATFORM_TENANT_CODE` (defaults to `BEACON`).
+4. Deploy. The `Procfile` runs, in order: `migrate` (default) →
+   `migrate --database=platform` → Beacon bootstrap commands →
+   `seed_platform_tenant`. **Until `PLATFORM_DATABASE_URL` is set, the two
+   platform steps are skipped**, so a deploy without it still boots Beacon
+   normally (but the `/platform/` route will deny all access — fail closed).
+
+### Migrations
+
+Platform migrations run **only** against the platform DB:
+
+```bash
+python manage.py migrate --database=platform
+```
+
+The router guarantees platform apps never migrate on `default` and Beacon/Django
+apps never create tables on `platform`.
+
+### Backup / portability
+
+The platform DB is self-contained — a single logical unit:
+
+```bash
+pg_dump "$PLATFORM_DATABASE_URL" > platform_backup.sql
+```
+
+This dump is a complete, portable snapshot with no dependency on Beacon's
+database — the basis for eventual extraction to a standalone deployment.
+
+### Local development
+
+PostgreSQL is required for platform development (no SQLite fallback). Example
+using a local Homebrew Postgres:
+
+```bash
+createuser --createdb beacon_platform            # or via psql CREATE ROLE ... CREATEDB
+createdb -O beacon_platform beacon_platform
+export PLATFORM_DATABASE_URL="postgres://beacon_platform:<pw>@localhost:5432/beacon_platform"
+python manage.py migrate --database=platform
+python manage.py seed_platform_tenant
+python manage.py test aegis.core      # runs against PostgreSQL
+```
+
+---
+
+*Last updated: 2026-08-07*

@@ -1,0 +1,37 @@
+{% extends "aegis/base.html" %}
+
+{% block title %}Dashboard — Enterprise Platform{% endblock %}
+
+{% block content %}
+    <div class="ep-card">
+        <h2>Tenant</h2>
+        <dl class="ep-kv">
+            <dt>Name</dt><dd>{{ tenant.name }}</dd>
+            <dt>Tenant code</dt><dd><code>{{ tenant.tenant_code }}</code></dd>
+            <dt>Status</dt><dd>{{ tenant.get_status_display }}</dd>
+        </dl>
+    </div>
+
+    <div class="ep-card">
+        <h2>Signed-in platform user</h2>
+        <dl class="ep-kv">
+            <dt>User</dt><dd>{{ platform_user }}</dd>
+            <dt>Email</dt><dd>{{ platform_user.email }}</dd>
+            <dt>Roles (this tenant)</dt>
+            <dd>
+                {% for role in roles %}{{ role.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+            </dd>
+        </dl>
+    </div>
+
+    <div class="ep-card">
+        <h2>Phase 0 — Foundation</h2>
+        <p>
+            No business modules exist yet. This shell exists to prove the
+            architectural boundary end to end: a dedicated platform database,
+            multi-tenant scoping, platform-owned identity, and membership-based
+            access control. People, credentials, certificates, and badging arrive
+            in later phases.
+        </p>
+    </div>
+{% endblock %}

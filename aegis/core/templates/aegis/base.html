@@ -1,0 +1,59 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Enterprise Platform{% endblock %}</title>
+    {# The platform owns its own chrome. It must NOT extend or import any Beacon
+       app template or asset (extraction hygiene). #}
+    <style>
+        :root { color-scheme: light dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.5;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        header.ep-topbar {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 0.85rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        header.ep-topbar .ep-mark {
+            width: 28px; height: 28px; border-radius: 6px;
+            background: linear-gradient(135deg, #38bdf8, #6366f1);
+        }
+        header.ep-topbar .ep-name { font-weight: 600; letter-spacing: 0.2px; }
+        header.ep-topbar .ep-phase {
+            margin-left: auto; font-size: 0.75rem; color: #94a3b8;
+            border: 1px solid #334155; border-radius: 999px; padding: 0.1rem 0.6rem;
+        }
+        main.ep-main { max-width: 880px; margin: 0 auto; padding: 1.5rem 1.25rem; }
+        .ep-card {
+            background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+            padding: 1.25rem 1.4rem; margin-bottom: 1rem;
+        }
+        .ep-card h2 { margin: 0 0 0.75rem; font-size: 1rem; color: #cbd5e1; }
+        .ep-kv { display: grid; grid-template-columns: 160px 1fr; gap: 0.35rem 1rem; }
+        .ep-kv dt { color: #94a3b8; }
+        .ep-kv dd { margin: 0; }
+        code { background: #0f172a; padding: 0.1rem 0.35rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <header class="ep-topbar">
+        <span class="ep-mark" aria-hidden="true"></span>
+        <span class="ep-name">Enterprise Platform</span>
+        <span class="ep-phase">{% block phase %}Foundation{% endblock %}</span>
+    </header>
+    <main class="ep-main">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

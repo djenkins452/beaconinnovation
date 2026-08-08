@@ -11,6 +11,9 @@ urlpatterns = [
     path('finance/', include('finance.urls')),
     path('products/', include('products.urls')),
     path('wlj/', include('wlj.urls')),
+    # Enterprise Platform (incubation route). Mounted before the '' website
+    # catch-all. Logically separable — its own package, DB, templates, and auth.
+    path('platform/', include('aegis.urls')),
     # Beacon distribution: release portals + artifacts at /downloads/<product>/
     re_path(r'^downloads/(?P<product>[\w-]+)/$',
             distribution_views.download_index, name='download_index'),
