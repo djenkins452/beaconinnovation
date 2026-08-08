@@ -1,0 +1,20 @@
+{% extends "aegis/core_hr/_base.html" %}
+{% block title %}{{ mode }} {{ label }} — Enterprise Platform{% endblock %}
+{% block hr_content %}
+  <div class="ep-card">
+    <h2>{{ mode }} — {{ label }}</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {% for field in form %}
+        <div style="margin:.6rem 0;">
+          <label style="display:block;color:#94a3b8;">{{ field.label }}</label>
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      <button type="submit">Save</button>
+      <a href="{% url 'platform:core_hr:reference_list' slug %}" style="margin-left:.75rem;">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

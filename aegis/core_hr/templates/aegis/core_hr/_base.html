@@ -1,0 +1,15 @@
+{% extends "aegis/base.html" %}
+{% block phase %}Core HR{% endblock %}
+{% block content %}
+  <nav class="ep-card" style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;">
+    <a href="{% url 'platform:core_hr:employee_list' %}">Employees</a>
+    <span style="color:#475569;">·</span>
+    <a href="{% url 'platform:core_hr:reference_list' 'companies' %}">Companies</a>
+    <a href="{% url 'platform:core_hr:reference_list' 'departments' %}">Departments</a>
+    <a href="{% url 'platform:core_hr:reference_list' 'jobs' %}">Jobs</a>
+    <a href="{% url 'platform:core_hr:reference_list' 'locations' %}">Locations</a>
+    <a href="{% url 'platform:core_hr:reference_list' 'employment-statuses' %}">Statuses</a>
+    <a href="{% url 'platform:core_hr:reference_list' 'employee-types' %}">Types</a>
+  </nav>
+  {% block hr_content %}{% endblock %}
+{% endblock %}

@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'distribution',
     # Enterprise Platform (incubated here; own DB + own /platform/ route).
     'aegis.core',
+    'aegis.core_hr',
     'whitenoise.runserver_nostatic',
 ]
 

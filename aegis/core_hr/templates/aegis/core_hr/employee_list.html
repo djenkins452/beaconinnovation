@@ -1,0 +1,33 @@
+{% extends "aegis/core_hr/_base.html" %}
+{% block title %}Employees — Enterprise Platform{% endblock %}
+{% block hr_content %}
+  <div class="ep-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+      <h2 style="margin:0;">Employees</h2>
+      <a href="{% url 'platform:core_hr:employee_create' %}">+ Add employee</a>
+    </div>
+    <form method="get" style="margin:.75rem 0;">
+      <input type="text" name="q" value="{{ query }}" placeholder="Search number or name"
+             style="padding:.35rem .5rem;min-width:260px;">
+      <button type="submit">Search</button>
+    </form>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="text-align:left;color:#94a3b8;">
+        <th>Number</th><th>Name</th><th>Department</th><th>Job</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        {% for e in employees %}
+          <tr style="border-top:1px solid #334155;">
+            <td><a href="{% url 'platform:core_hr:employee_detail' e.pk %}">{{ e.employee_number }}</a></td>
+            <td>{{ e.display_name }}</td>
+            <td>{{ e.department.name|default:"—" }}</td>
+            <td>{{ e.job.title|default:"—" }}</td>
+            <td>{{ e.employment_status.label }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" style="padding:1rem 0;color:#94a3b8;">No employees yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

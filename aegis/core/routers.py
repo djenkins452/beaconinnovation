@@ -18,6 +18,7 @@ affect Beacon's ``default`` database.
 # (people, identity, badging, hardware) are added here as they are created.
 PLATFORM_APP_LABELS = {
     'aegis_core',
+    'aegis_core_hr',
 }
 
 PLATFORM_DB = 'platform'

@@ -311,9 +311,11 @@ environment variable and isolated by `aegis.core.routers.PlatformRouter`.
 3. (Optional) Set `PLATFORM_TENANT_CODE` (defaults to `BEACON`).
 4. Deploy. The `Procfile` runs, in order: `migrate` (default) →
    `migrate --database=platform` → Beacon bootstrap commands →
-   `seed_platform_tenant`. **Until `PLATFORM_DATABASE_URL` is set, the two
-   platform steps are skipped**, so a deploy without it still boots Beacon
-   normally (but the `/platform/` route will deny all access — fail closed).
+   `seed_platform_tenant` → `seed_core_hr_defaults BEACON` (idempotent default
+   employment statuses + employee types for Tenant #1). **Until
+   `PLATFORM_DATABASE_URL` is set, all platform steps are skipped**, so a deploy
+   without it still boots Beacon normally (but the `/platform/` route will deny
+   all access — fail closed). Core HR console lives at `/platform/hr/`.
 
 ### Migrations
 

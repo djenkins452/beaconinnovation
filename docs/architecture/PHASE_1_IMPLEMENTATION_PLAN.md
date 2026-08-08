@@ -1,10 +1,10 @@
 ---
 title: Phase 1 — Core HR Implementation Plan
 document_id: ENTERPRISE_PLATFORM_PHASE_1_IMPLEMENTATION_PLAN
-version: 0.1
-status: Proposed (for review — DO NOT IMPLEMENT until approved)
+version: 1.0
+status: Implemented on branch phase-1-core-hr-impl (2026-08-08) — pending review; Phase 2 / Identity module NOT authorized
 owner: Beacon Innovation, LLC
-authoritative: false
+authoritative: true
 classification: Internal
 layer: Architecture (Level 4)
 audience:

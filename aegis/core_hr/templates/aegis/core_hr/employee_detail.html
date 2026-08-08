@@ -1,0 +1,24 @@
+{% extends "aegis/core_hr/_base.html" %}
+{% block title %}{{ employee.display_name }} — Enterprise Platform{% endblock %}
+{% block hr_content %}
+  <div class="ep-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+      <h2 style="margin:0;">{{ employee.display_name }} <span style="color:#94a3b8;font-weight:400;">({{ employee.employee_number }})</span></h2>
+      <a href="{% url 'platform:core_hr:employee_edit' employee.pk %}">Edit</a>
+    </div>
+    <dl class="ep-kv" style="margin-top:1rem;">
+      <dt>Company</dt><dd>{{ employee.company.name }}</dd>
+      <dt>Department</dt><dd>{{ employee.department.name|default:"—" }}</dd>
+      <dt>Job</dt><dd>{{ employee.job.title|default:"—" }}</dd>
+      <dt>Location</dt><dd>{{ employee.location.name|default:"—" }}</dd>
+      <dt>Manager</dt><dd>{% if employee.manager %}{{ employee.manager.display_name }}{% else %}—{% endif %}</dd>
+      <dt>Status</dt><dd>{{ employee.employment_status.label }} ({{ employee.employment_status.get_system_category_display }})</dd>
+      <dt>Type</dt><dd>{{ employee.employee_type.label }}</dd>
+      <dt>Hire date</dt><dd>{{ employee.hire_date }}</dd>
+      <dt>Original hire</dt><dd>{{ employee.original_hire_date|default:"—" }}</dd>
+      <dt>Termination</dt><dd>{{ employee.termination_date|default:"—" }}</dd>
+      <dt>Email</dt><dd>{{ employee.email|default:"—" }}</dd>
+      <dt>Workforce active</dt><dd>{{ employee.is_workforce_active|yesno:"Yes,No" }}</dd>
+    </dl>
+  </div>
+{% endblock %}

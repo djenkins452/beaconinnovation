@@ -1,0 +1,31 @@
+{% extends "aegis/core_hr/_base.html" %}
+{% block title %}{{ label }} — Enterprise Platform{% endblock %}
+{% block hr_content %}
+  <div class="ep-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+      <h2 style="margin:0;">{{ label }}</h2>
+      <a href="{% url 'platform:core_hr:reference_create' slug %}">+ Add</a>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-top:.75rem;">
+      <thead><tr style="text-align:left;color:#94a3b8;"><th>Record</th><th>Active</th><th></th></tr></thead>
+      <tbody>
+        {% for obj in objects %}
+          <tr style="border-top:1px solid #334155;">
+            <td>{{ obj }}</td>
+            <td>{{ obj.is_active|yesno:"Yes,No" }}</td>
+            <td style="text-align:right;">
+              <a href="{% url 'platform:core_hr:reference_edit' slug obj.pk %}">Edit</a>
+              <form method="post" action="{% url 'platform:core_hr:reference_toggle_active' slug obj.pk %}"
+                    style="display:inline;margin-left:.5rem;">
+                {% csrf_token %}
+                <button type="submit">{% if obj.is_active %}Deactivate{% else %}Activate{% endif %}</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" style="padding:1rem 0;color:#94a3b8;">None yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

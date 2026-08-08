@@ -620,6 +620,36 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-08-08
+
+### Enterprise Platform — Phase 1: Core HR (Employee foundation)
+- New platform app `aegis.core_hr` (platform DB only). 7 tenant-scoped entities:
+  Company, Location, Department (self-hierarchy), Job, EmploymentStatus,
+  EmployeeType, Employee (manager self-ref; current-state only).
+- Files created: `aegis/core_hr/` — models, forms, views, urls, services (audited
+  writes), seed + `seed_core_hr_defaults` command, templates
+  (`templates/aegis/core_hr/`), and `tests/` (51 tests).
+- Files modified: `settings.py` (`INSTALLED_APPS += aegis.core_hr`);
+  `aegis/core/routers.py` (`PLATFORM_APP_LABELS += aegis_core_hr`);
+  `aegis/urls.py` (`/platform/hr/`); `Procfile` (guarded `seed_core_hr_defaults`).
+- Migration: `aegis_core_hr/0001_initial` — platform DB only (verified: 0 core_hr
+  tables in Beacon SQLite; 7 in platform PG, 0 Beacon-table leakage).
+- Tenant consistency: fail-closed managers + `TenantConsistencyMixin` +
+  form/service validation + CheckConstraints (`manager != self`,
+  `termination_date >= hire_date`); NO composite FKs (per approved design). Manager
+  is the unscoped default/base manager; `objects` stays fail-closed for app code.
+- Audit: all writes go through the service layer and emit immutable `AuditEvent`s.
+- Reportability validated by tests (headcount by dept/job/company/location, status
+  & type distribution, by-manager, hire/termination analysis).
+- Tests: 51 core_hr (pass on PostgreSQL). Phase 0 (aegis.core) 28 green. Beacon
+  489/490 (the 1 failure `products…test_publishes_committed_aims_build` remains
+  PRE-EXISTING / out of scope). No new regressions.
+- Deferred (unchanged): EmployeeIdentityLink, credentials/PIV/PKI, positions,
+  effective-dated history, comp/payroll/benefits/time, module registry, reporting/
+  KPI/workflow/custom-field/integration engines, RLS.
+
+---
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 
