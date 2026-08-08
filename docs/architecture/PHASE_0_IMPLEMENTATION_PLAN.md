@@ -57,7 +57,7 @@ strings say **"Enterprise Platform"**. Route: **`/platform/`**.
 | **`BadgeTemplate`, `BadgePrintEvent`** | **SEAM ONLY — Phase 4** |
 | **Local issuance client** + agent API + per-device auth | **SEAM ONLY — Phase 4+** |
 | **Smart-card / PIV / printer / CA** provider adapters | **SEAM ONLY — Phase 4–5** |
-| Additional auth providers (Entra/OIDC, Google, SAML, CAC/PIV) | **SEAM ONLY — Phase 7** |
+| Additional auth providers (Entra/OIDC, Google, SAML, PIV/smart-card) | **SEAM ONLY — Phase 7** |
 | PostgreSQL **Row-Level Security** policies | **SEAM ONLY — schema is RLS-ready now; enable Phase 7** |
 | UUIDv7 | **SEAM ONLY — one-line swap; Phase 0 uses UUIDv4 via a central helper** |
 
@@ -209,7 +209,7 @@ the platform never reads Beacon's finance/OTA/Cloudinary settings).
 - **Hard rule (B2):** authentication ≠ access. A resolved `PlatformUser` with **no
   active `Membership`** in the target tenant is **denied** (access enforced in §10).
   First access is granted only via the bootstrap admin seed or an explicit grant.
-- **Seam only:** Entra/OIDC, Google, SAML, CAC/PIV providers — new classes behind
+- **Seam only:** Entra/OIDC, Google, SAML, PIV/smart-card providers — new classes behind
   the same ABC later; no PlatformUser/RBAC/session rework needed to add them.
 - Any temporary local dev credential path stays isolated in the bootstrap command,
   clearly labeled dev/bootstrap, never the long-term mechanism.

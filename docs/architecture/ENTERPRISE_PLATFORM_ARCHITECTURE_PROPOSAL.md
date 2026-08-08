@@ -39,12 +39,17 @@ separate **Phase 0 Implementation Plan** (`docs/architecture/PHASE_0_IMPLEMENTAT
 
 ## Executive Summary
 
-The Enterprise Platform is a new, commercial, **multi-tenant SaaS** for identity,
-credentialing, and badging — starting with a clean Employee/organization data
-model and growing toward smart-card/PIV issuance, PKI certificate lifecycle, and
-badge printing, and eventually a broader HCM. It will be **incubated inside the
-existing Beacon Django application** but is explicitly designed to be **extracted**
-later to its own name, domain, database, and deployment. Beacon Innovation LLC is
+The Enterprise Platform is a new, commercial, **multi-tenant HCM (Human Capital
+Management) SaaS**. It begins with a clean relational **Employee and
+organizational-data foundation** ("Core HR") and grows the workforce lifecycle
+from there. **Enterprise identity, credential management, PIV/PKI, and security
+badging are an early, major _differentiating module_ of the HCM — not the
+definition of the product.** (The company credential uses the same broad PIV/PKI
+smart-card concepts as enterprise/government systems, but the platform issues
+legitimate, tenant-branded, company-owned credentials; it does **not** create or
+represent them as a U.S. DoD CAC.) It will be **incubated inside the existing
+Beacon Django application** but is explicitly designed to be **extracted** later
+to its own name, domain, database, and deployment. Beacon Innovation LLC is
 **Tenant #1**, not the platform's owner-in-code.
 
 Discovery of the actual repository produced one finding that reframes the whole
@@ -306,9 +311,16 @@ Employee 0..1──1 Employee (manager)     Employee 0..1──1 PlatformUser
 
 ---
 
-## E. Credential Domain Model (future-ready, built incrementally)
+## E. Credential Domain Model — the "Identity & Credential Management" module (future-ready, built incrementally)
 
-Design now, implement in Phases 3–6. All tables are tenant-scoped.
+This is an **early, major module of the HCM**, not the HCM core. The credential
+domain stays **separate from the `Employee` record**: an Employee may have zero,
+one, or historically many credentials, and issuing/revoking/replacing a credential
+never modifies the Employee. Credentials reference Employee (never the reverse), so
+the HCM remains fully usable for tenants that never license this module.
+
+Design now, implement in later phases (after the Core HR Employee foundation is
+stable). All tables are tenant-scoped.
 
 ### CredentialType  *(identity)* — reference/config
 `id` · `tenant_id` · `type_code` (**bkey**) · `name` · `card_technology`
@@ -361,7 +373,7 @@ behind an `AuthenticationProvider` seam. On first authenticated arrival, a Beaco
 user is mapped/provisioned to a `PlatformUser` via a stable external subject id
 (stored as a plain UUID/string — **no cross-DB FK**). This keeps the door open for
 the providers the Beacon Platform strategy already names (Entra, Google, Apple,
-CAC) without reworking authorization. *Whether to reuse Beacon's session or run a
+PIV/smart-card certificate) without reworking authorization. *Whether to reuse Beacon's session or run a
 platform-owned session is a **blocking** decision (§J-B2); the seam makes either
 choice reversible.*
 
@@ -572,7 +584,7 @@ Application functionality remains **unauthorized** pending Phase 0 plan approval
   **MUST NOT** automatically receive platform access — `PlatformUser` + `Membership`
   must explicitly authorize it. Do **not** casually build another permanent
   username/password system. Future providers: Entra ID/OIDC, Google, enterprise
-  OIDC/SAML, CAC/PIV/certificate auth. Any **minimal temporary local auth** for
+  OIDC/SAML, PIV/smart-card certificate auth. Any **minimal temporary local auth** for
   dev/bootstrap must be **clearly separated** from the long-term architecture and
   must not require replacing PlatformUser/RBAC/session on extraction.
 
