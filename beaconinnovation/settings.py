@@ -21,7 +21,10 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Env-driven with a production-safe default (False). Set DJANGO_DEBUG=True for the
+# local dev server. Parsing is explicit so DJANGO_DEBUG=False is honored
+# (guards against the naive bool("False") == True pitfall).
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes', 'on')
 
 ALLOWED_HOSTS = [
     'beacon-innovation.com',
@@ -40,6 +43,29 @@ CSRF_TRUSTED_ORIGINS = [
 # Without this, request.is_secure() is False behind the proxy. Apple OTA
 # requires https end-to-end, so honoring the forwarded proto is important.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# --- Production security hardening ---------------------------------------------
+# Mark session/CSRF cookies Secure in production. Guarded by DEBUG so the local
+# (plain-http) dev server can still set them. Does not affect Beacon's public
+# pages; applies to authenticated flows (WLJ/finance/products and /platform/).
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# HTTPS redirect — DEFERRED by default. Railway already serves HTTPS at the edge
+# and forwards X-Forwarded-Proto (honored above). Turning on app-level redirect
+# before the proxy + Railway healthcheck path are production-verified risks
+# redirect loops / failed healthchecks. Env-gated so it can be enabled later
+# WITHOUT a code change once verified: DJANGO_SECURE_SSL_REDIRECT=True.
+SECURE_SSL_REDIRECT = os.environ.get(
+    'DJANGO_SECURE_SSL_REDIRECT', 'False'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# HSTS — DEFERRED (default 0 = off). HSTS is browser-cached and hard to walk back,
+# so enable only after production HTTPS is confirmed stable. Env-gated: set
+# DJANGO_SECURE_HSTS_SECONDS (e.g. 3600, then ramp to a year) to enable.
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
 
 
 # Application definition
