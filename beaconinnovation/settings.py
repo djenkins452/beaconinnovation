@@ -206,6 +206,12 @@ WHITENOISE_MIMETYPES = {
 # `distribution` app (written by the Beacon Release Engine, scripts/beacon_release).
 DOWNLOADS_ROOT = BASE_DIR / 'downloads'
 
+# Admin → Products: PRIVATE Developer Guide snapshots (per product, SHA-identified),
+# deployed by each product's own pipeline. Served ONLY through the authenticated,
+# staff-gated admin_console.product_views.developer_guide view — never via /static/
+# (WhiteNoise) or /downloads/ (both public). Not in STATICFILES_DIRS.
+DEVGUIDE_ROOT = BASE_DIR / 'product_guides'
+
 # Media files (uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

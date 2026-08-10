@@ -1,0 +1,12 @@
+{
+  "product": "aims",
+  "name": "AIMS",
+  "commit": "70d5f53",
+  "branch": "main",
+  "lifecycle": "development",
+  "version": null,
+  "guide_schema": "1.0",
+  "generated_at": "2026-08-10 15:05 UTC",
+  "archive": "guide.tar.gz",
+  "source_repo": "djenkins452/aims"
+}

@@ -1,0 +1,58 @@
+{% extends 'admin_console/base.html' %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{% url 'admin_console:products' %}">Products</a></li>
+    <li class="breadcrumb-item active">{{ product.name }}</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-start mb-1">
+  <div>
+    <h1 class="h3 mb-0">{{ product.name }}</h1>
+    <div class="text-muted">{{ product.full_name }}</div>
+  </div>
+  <span class="badge {% if product.lifecycle == 'production' %}bg-success{% elif product.lifecycle == 'development' %}bg-secondary{% else %}bg-light text-dark{% endif %} text-capitalize fs-6">{{ product.lifecycle }}</span>
+</div>
+<p class="text-muted">{{ product.summary }}</p>
+<div class="small text-muted mb-4">Owner: {{ product.owner }}</div>
+
+<h2 class="h6 text-uppercase text-muted">Engineering</h2>
+<div class="row g-3 mb-4">
+  {% if 'developer_guide' in product.backed_capabilities %}
+  <div class="col-md-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <h3 class="h5 mb-1"><i class="bi-book me-1"></i> Developer Guide</h3>
+            <p class="small text-muted mb-0">Complete technical documentation generated from the {{ product.name }} repository — architecture, subsystems, source, decisions, tests, searchable.</p>
+          </div>
+          <a href="{% url 'admin_console:developer_guide' product.key %}" class="btn btn-primary text-nowrap ms-3">Open Guide →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-md-8"><div class="alert alert-light border small mb-0">No Developer Guide snapshot is deployed yet.</div></div>
+  {% endif %}
+</div>
+
+{% if product.snapshot %}
+<h2 class="h6 text-uppercase text-muted">Release / Product information</h2>
+<div class="card shadow-sm">
+  <div class="card-body">
+    <dl class="row mb-0 small">
+      <dt class="col-sm-3">Lifecycle</dt>
+      <dd class="col-sm-9 text-capitalize">{{ product.snapshot.lifecycle }}{% if product.snapshot.version %} · v{{ product.snapshot.version }}{% endif %}</dd>
+      <dt class="col-sm-3">Source</dt>
+      <dd class="col-sm-9"><code>{{ product.snapshot.branch }}</code> @ <code>{{ product.snapshot.commit }}</code></dd>
+      <dt class="col-sm-3">Developer Guide</dt>
+      <dd class="col-sm-9">Snapshot generated {{ product.snapshot.generated_at }}{% if product.snapshot.guide_schema %} · Guide schema {{ product.snapshot.guide_schema }}{% endif %}</dd>
+    </dl>
+    <div class="text-muted small mt-2">Provenance comes from the {{ product.name }} repository (product.json / commit), not configured here.</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

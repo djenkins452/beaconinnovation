@@ -1,12 +1,21 @@
 from django.urls import path
 from . import views
 from . import api_views
+from . import product_views
 
 app_name = 'admin_console'
 
 urlpatterns = [
     # Admin UI views
     path('', views.dashboard, name='dashboard'),
+
+    # Admin → Products (reusable internal product shell; AIMS is the first product).
+    path('products/', product_views.products_index, name='products'),
+    path('products/<slug:product_key>/', product_views.product_detail, name='product_detail'),
+    path('products/<slug:product_key>/developer-guide/',
+         product_views.developer_guide, name='developer_guide'),
+    path('products/<slug:product_key>/developer-guide/<path:path>',
+         product_views.developer_guide, name='developer_guide_asset'),
     path('tasks/', views.task_list, name='task_list'),
     path('tasks/create/', views.task_create, name='task_create'),
     path('tasks/<uuid:task_id>/', views.task_detail, name='task_detail'),

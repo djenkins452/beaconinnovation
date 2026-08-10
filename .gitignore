@@ -20,3 +20,6 @@ media/
 
 # Release pipeline dry-run scratch
 .release-dryrun/
+
+# Admin → Products: per-SHA Developer Guide rollback copies (active snapshot IS tracked)
+product_guides/*/snapshots/

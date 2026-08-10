@@ -60,6 +60,11 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if 'product' in request.resolver_match.url_name or active_nav == 'products' %}active{% endif %}" href="{% url 'admin_console:products' %}">
+                                <i class="bi-box-seam me-2"></i> Products
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link" href="{% url 'admin_console:task_create' %}">
                                 <i class="bi-plus-circle me-2"></i> New Task
                             </a>
