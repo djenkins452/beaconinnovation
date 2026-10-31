@@ -4,6 +4,18 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-10-31
+
+### Durable, private storage for finance uploads (DB-backed) + credential finalization
+- **Context:** post-PostgreSQL-cutover, the web service has no Volume, so uploads under `MEDIA_ROOT` (receipts, CSV imports) would be lost on redeploy. Investigated reusing WLJ's storage: WLJ uses Cloudinary `MediaCloudinaryStorage` (**public** delivery URLs) on the Free 25-credit shared plan — unsuitable for financial receipts and would add a shared secret/deps.
+- **Decision:** store finance upload bytes in the existing durable PostgreSQL via a scoped custom backend `finance.storage.DatabaseStorage` (model `finance.StoredBlob`). Fully private (no public URL; served only via access-checked `view_receipt`/`download_receipt`), survives redeploys, **no added cost**, WLJ/Cloudinary untouched. No Railway Volume provisioned.
+- Files: `finance/storage.py` (new), `finance/models.py` (StoredBlob + `storage=database_storage` on `Receipt.file`/`CSVImport.file`), `finance/views.py` (`upload_receipt` returns the access-checked view URL, not `.url`), `finance/tests/test_db_storage.py` (new), `docs/architecture/PHASE_0_DURABILITY.md` (§9).
+- Migrations: `finance/0007_storedblob_alter_csvimport_file_alter_receipt_file`.
+- Tests: 422 finance tests pass locally on PostgreSQL (incl. new DB-storage round-trip + access-control tests). Production: test upload verified to survive redeploy + enforce access control, then removed.
+- Credential: exposed `Beacon2026` (git history) had authenticated `dannyjenkins71@gmail.com` → reset (new password saved privately on owner's Mac, not printed); `danny` not exposed; `DJANGO_SUPERUSER_PASSWORD` (≠ exposed value) rotated as defense-in-depth. All superuser migrations/commands env-gated, create-if-absent, no hardcoded passwords.
+
+---
+
 ## 2026-07-27
 
 ### Native Apple OTA install in the secure portal (device-aware, authorization-preserving)

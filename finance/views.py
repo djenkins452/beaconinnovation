@@ -621,7 +621,9 @@ def upload_receipt(request, transaction_id):
                 'filename': receipt.original_filename,
                 'file_type': receipt.file_type,
                 'file_size': receipt.file_size,
-                'url': receipt.file.url,
+                # Access-checked view URL (the file has no public URL; it is
+                # served only through this login- and permission-gated view).
+                'url': reverse('finance:view_receipt', args=[receipt.id]),
             }
         }, status=201)
 

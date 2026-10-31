@@ -187,9 +187,15 @@ Decide this explicitly before acting; the two cases are different.
 
 ---
 
-### 4.5 Receipt files — backup, migration, and access (PENDING production verification)
+### 4.5 Receipt files — backup, migration, and access (SUPERSEDED — see §9)
 
-Receipts are sensitive financial documents stored on a private `FileField` (`finance` `Receipt.file`, `upload_to='receipts/%Y/%m/'`) and served **only** through the access-checked view (`finance._check_receipt_access`: superuser, or the transaction's creator / the receipt's uploader; denied → 404). They are not in `STATICFILES_DIRS` or `/downloads/`. **Durability of the receipt *files* in production is UNVERIFIED** — it depends on whether a persistent Volume is mounted (§1).
+> **Resolved 2026-10-31:** receipt/CSV upload durability is now handled by DB-backed
+> storage (`finance.storage.DatabaseStorage`), not a Volume. See **§9** for the final
+> design, rationale, and verification. The Volume-based notes below are retained only
+> as the historical alternative (it remains a drop-in option if upload volume ever
+> grows, but it is billable and needs approval).
+
+Receipts are sensitive financial documents stored on a private `FileField` (`finance` `Receipt.file`, `upload_to='receipts/%Y/%m/'`) and served **only** through the access-checked view (`finance._check_receipt_access`: superuser, or the transaction's creator / the receipt's uploader; denied → 404). They are not in `STATICFILES_DIRS` or `/downloads/`.
 
 **Make files durable + copy existing files (operator, production):**
 1. Provision a persistent Volume; set `DJANGO_MEDIA_ROOT` to its mount path (e.g. `/data/media`).
@@ -300,3 +306,60 @@ Narrowly: **purchases, materials/spools, opening inventory, and print consumptio
 ---
 
 *Phase 0 ends here, awaiting your review of §5–§6 before any production cutover.*
+
+---
+
+## 9. Post-cutover status (LIVE as of 2026-10-31)
+
+Beacon production was cut over to **PostgreSQL 17.7** (Railway `Postgres` service, DB
+`railway`, volume-backed) and is live on `main`. Data was backed up + verified first,
+restored, and parity-verified; the Phase 1/aegis code ships but is **dormant**
+(`PLATFORM_DATABASE_URL` unset → no aegis tables).
+
+### 9.1 Uploaded-file storage — FINAL: DB-backed, private, no added cost
+
+**Decision:** sensitive finance uploads (`Receipt.file`, `CSVImport.file`) are stored
+as rows in the existing durable PostgreSQL via `finance.storage.DatabaseStorage`
+(model `finance.StoredBlob`). **Cloudinary is not used; no Railway Volume was added.**
+
+**Why (investigation):**
+- **WLJ** uses Cloudinary via `django-cloudinary-storage` `MediaCloudinaryStorage`
+  — i.e. **public** delivery URLs for avatars/personal media — on the **Free (25
+  credit / 25 GB)** shared plan. Public CDN URLs are unsuitable for financial
+  receipts (they bypass Beacon's access checks), and reusing that account would add
+  a shared secret + new dependencies to Beacon, share free-tier credits with WLJ,
+  and need a custom authenticated backend + proxy to be private.
+- **DB-backed storage** reuses an already-provisioned, approved resource at **no
+  added cost**, is **fully private** (no public URL exists; files are reachable only
+  through the access-checked `view_receipt`/`download_receipt` views), **survives
+  redeploys** (durable DB), and leaves **WLJ/Cloudinary untouched**.
+- Access control was already storage-agnostic: templates link only to the gated
+  views; there is no public `/media/` route.
+
+**Cost / limits:** none added. Blobs live in the existing Postgres (tiny volume of
+small ≤10 MB files). If upload volume ever grows enough to matter for DB size,
+moving blobs to a Railway Volume (~$0.156/GB-month) or object storage
+($0.015/GB-month) is a drop-in change — **billable, so it needs approval first.**
+
+**Verification:** 422 finance tests pass locally on PostgreSQL, incl.
+`finance/tests/test_db_storage.py` (bytes persist in DB, owner/superuser can view,
+unauthorized denied 404, delete removes the blob). Production: a test upload was
+confirmed to survive a redeploy and enforce access control, then removed.
+
+### 9.2 Administrator credential — FINAL status
+
+- **Exposed:** `dannyjenkins71@gmail.com` — the legacy hardcoded `Beacon2026`
+  (old `finance/0006`, still in git **history**) authenticated this account. It was
+  **reset** to a new strong password; the old password no longer works. The new
+  password is stored privately on the owner's Mac at
+  `~/beacon-backups/ADMIN_CREDENTIAL_RESET.txt` (never printed).
+- **Not exposed:** `danny` — `Beacon2026` did not authenticate it; not reset.
+- **Bootstrap env var:** `DJANGO_SUPERUSER_PASSWORD` does **not** equal the exposed
+  value; it was **rotated** to a fresh random value as defense-in-depth, so no
+  bootstrap path can recreate an account with an exposed password. `BEACON_ADMIN_PASSWORD`
+  is unset. All superuser-creating migrations/commands (`finance/0006`, `wlj/0002`,
+  `create_wlj_superuser`) are env-gated and create-if-absent only — none hardcodes a
+  password and none alters an existing account.
+- **Residual:** `Beacon2026` remains in git **history** (dead credential now) and in
+  one changelog note + a security test asserting its absence. Optional future
+  cleanup: `git filter-repo` to scrub history.

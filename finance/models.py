@@ -7,6 +7,8 @@ from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 
+from finance.storage import database_storage
+
 
 class AccountManager(models.Manager):
     """Custom manager for Account model with optimized balance calculations."""
@@ -352,7 +354,9 @@ class Receipt(models.Model):
         on_delete=models.CASCADE,
         related_name='receipts'
     )
-    file = models.FileField(upload_to='receipts/%Y/%m/')
+    # Stored in PostgreSQL via DatabaseStorage: durable across redeploys and
+    # private (no public URL; served only through access-checked views).
+    file = models.FileField(upload_to='receipts/%Y/%m/', storage=database_storage)
     original_filename = models.CharField(max_length=255)
     file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES)
     file_size = models.IntegerField(help_text='File size in bytes')
@@ -554,7 +558,8 @@ class CSVImport(models.Model):
         on_delete=models.PROTECT,
         related_name='csv_imports'
     )
-    file = models.FileField(upload_to='csv_imports/%Y/%m/')
+    # Durable + private storage in PostgreSQL (see finance.storage).
+    file = models.FileField(upload_to='csv_imports/%Y/%m/', storage=database_storage)
     original_filename = models.CharField(max_length=255)
     row_count = models.IntegerField(default=0)
     imported_count = models.IntegerField(default=0)
@@ -578,3 +583,25 @@ class CSVImport(models.Model):
 
     def __str__(self):
         return f'{self.original_filename} ({self.get_status_display()})'
+
+
+class StoredBlob(models.Model):
+    """Durable, private storage for finance upload bytes (see finance.storage).
+
+    Backs the DatabaseStorage backend used by Receipt.file and CSVImport.file so
+    sensitive financial uploads survive Railway's ephemeral filesystem without a
+    public URL or any new paid resource. ``name`` is the storage path/key.
+    """
+
+    name = models.CharField(max_length=512, unique=True, db_index=True)
+    data = models.BinaryField()
+    size = models.BigIntegerField(default=0)
+    content_type = models.CharField(max_length=100, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Stored File (DB-backed)'
+        verbose_name_plural = 'Stored Files (DB-backed)'
+
+    def __str__(self):
+        return f'{self.name} ({self.size} bytes)'
