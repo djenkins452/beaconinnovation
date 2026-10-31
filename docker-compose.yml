@@ -1,0 +1,36 @@
+# Local PostgreSQL for Beacon development and tests.
+#
+# PostgreSQL is MANDATORY in every environment; this file gives a one-command,
+# reproducible local setup:
+#
+#   docker compose up -d
+#   cp .env.example .env            # defaults below match the example
+#   python manage.py migrate
+#   python manage.py migrate --database=platform   # aegis platform DB
+#
+# This provisions TWO separate databases on one local server:
+#   * beacon           -> Beacon's `default` database
+#   * beacon_platform  -> the aegis Enterprise Platform database (kept isolated
+#                         by PlatformRouter; NOT merged with `default`).
+# Django creates its own test_* databases automatically when running the suite.
+services:
+  postgres:
+    image: postgres:16
+    container_name: beacon-postgres
+    environment:
+      POSTGRES_USER: beacon
+      POSTGRES_PASSWORD: beacon
+      POSTGRES_DB: beacon
+    ports:
+      - "5432:5432"
+    volumes:
+      - beacon_pgdata:/var/lib/postgresql/data
+      - ./scripts/phase0_migrate/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beacon -d beacon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  beacon_pgdata:

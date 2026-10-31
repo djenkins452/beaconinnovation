@@ -2,9 +2,21 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load a local .env for developer convenience (DATABASE_URL, secrets, etc.).
+# Real environment variables always take precedence (override=False), so this is
+# effectively a no-op in production, where the platform injects the variables.
+# python-dotenv is a dev convenience; guard the import so its absence is harmless.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+if load_dotenv is not None:
+    load_dotenv(BASE_DIR / '.env', override=False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -128,23 +140,48 @@ WSGI_APPLICATION = 'beaconinnovation.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# PostgreSQL is MANDATORY in every environment (local dev, automated tests, CI,
+# staging, production). SQLite is no longer supported anywhere: there is no SQLite
+# configuration and no fallback. Missing or non-PostgreSQL configuration fails
+# loudly at startup rather than silently running on a disposable database.
+# See docs/architecture/PHASE_0_DURABILITY.md.
+
+def _require_postgres(url, var_name):
+    """Parse a database URL and refuse anything that is not PostgreSQL."""
+    config = dj_database_url.parse(url, conn_max_age=600)
+    if 'postgresql' not in config.get('ENGINE', ''):
+        raise ImproperlyConfigured(
+            f"{var_name} must be a PostgreSQL connection URL "
+            "(postgres://USER:PASSWORD@HOST:PORT/NAME); got engine "
+            f"{config.get('ENGINE', '')!r}. SQLite is not supported in any "
+            "environment."
+        )
+    return config
+
+
+_DATABASE_URL = os.environ.get('DATABASE_URL')
+if not _DATABASE_URL:
+    raise ImproperlyConfigured(
+        "DATABASE_URL is not set. Beacon requires a PostgreSQL database in every "
+        "environment. For local development: `docker compose up -d` and copy "
+        ".env.example to .env. See docs/architecture/PHASE_0_DURABILITY.md. "
+        "SQLite is no longer supported."
+    )
+
 DATABASES = {
-    # Beacon's existing database — UNCHANGED by the Enterprise Platform work.
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    # Beacon's primary database. PostgreSQL only.
+    'default': _require_postgres(_DATABASE_URL, 'DATABASE_URL'),
 }
 
-# Enterprise Platform database (decision B1): a DEDICATED PostgreSQL database,
-# separate from Beacon's. There is intentionally NO SQLite fallback — platform
-# development and production both use PostgreSQL. When PLATFORM_DATABASE_URL is
-# unset the platform DB is simply absent (Beacon still runs normally); any
-# platform operation then fails loudly rather than silently using the wrong DB.
+# Enterprise Platform database (decision B1): a DEDICATED, SEPARATE PostgreSQL
+# database, kept isolated from Beacon's `default` DB by the PlatformRouter below.
+# It remains optional at the Beacon level — when PLATFORM_DATABASE_URL is unset the
+# platform DB is simply absent and /platform/ fails closed (TenantMiddleware),
+# leaving Beacon unaffected. This Phase 0 change does NOT merge the two databases.
 PLATFORM_DATABASE_URL = os.environ.get('PLATFORM_DATABASE_URL')
 if PLATFORM_DATABASE_URL:
-    DATABASES['platform'] = dj_database_url.parse(
-        PLATFORM_DATABASE_URL, conn_max_age=600
+    DATABASES['platform'] = _require_postgres(
+        PLATFORM_DATABASE_URL, 'PLATFORM_DATABASE_URL'
     )
 
 # The router is the enforced boundary between Beacon and the platform.
@@ -212,9 +249,18 @@ DOWNLOADS_ROOT = BASE_DIR / 'downloads'
 # (WhiteNoise) or /downloads/ (both public). Not in STATICFILES_DIRS.
 DEVGUIDE_ROOT = BASE_DIR / 'product_guides'
 
-# Media files (uploads)
+# Media files (uploads — includes finance receipts and CSV imports).
+#
+# Receipts are sensitive financial documents. They are stored on a private
+# FileField and served ONLY through access-checked Django views (never a public
+# URL), so they must live on durable, private storage — NOT a public CDN. On
+# Railway this means mounting a persistent Volume and pointing DJANGO_MEDIA_ROOT
+# at its mount path; locally it defaults to BASE_DIR/media. Making the path an
+# env var keeps existing file references intact (upload_to paths are unchanged)
+# and preserves the existing access controls. Cloudinary is intentionally NOT used
+# for receipts: its delivery URLs are unsuitable for sensitive records.
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', BASE_DIR / 'media')
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

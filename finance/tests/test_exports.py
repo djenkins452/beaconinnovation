@@ -305,16 +305,16 @@ class IncomeStatementExportTests(ExportTestCase):
 
     def test_export_income_statement_includes_owners_draw(self):
         """CSV includes owner's draws."""
-        # Create owner's draw
-        draw_category, _ = Category.objects.get_or_create(
-            name="Owner's Draw",
-            category_type='owners_draw'
-        )
+        # Create owner's draw. Owner's draws are uncategorized by design
+        # (Category.category_type only allows income/expense, and Transaction.clean
+        # does not require a category for draws). The previous version inserted an
+        # invalid 11-char category_type ('owners_draw') that only SQLite tolerated;
+        # PostgreSQL correctly rejects it (varchar(10) + invalid choice).
         Transaction.objects.create(
             transaction_date=date.today(),
             transaction_type='owners_draw',
             account=self.account,
-            category=draw_category,
+            category=None,
             vendor='Owner',
             description='Monthly draw',
             amount=Decimal('1000.00')

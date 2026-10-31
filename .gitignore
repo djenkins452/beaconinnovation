@@ -10,6 +10,9 @@ __pycache__/
 # Database (local dev)
 db.sqlite3
 
+# Phase 0 durability: local backups / migration artifacts (never commit data)
+backups/
+
 # macOS
 .DS_Store
 
