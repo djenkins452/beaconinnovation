@@ -25,6 +25,9 @@ import argparse
 import os
 import sys
 
+# Ensure the repo root is importable so the Beacon apps resolve regardless of cwd.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import django
 from django.conf import settings
 

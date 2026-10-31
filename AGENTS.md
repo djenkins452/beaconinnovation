@@ -153,21 +153,16 @@ Common issues will be documented as they arise during development.
 2. **Commit Changes:**
    - `git add -A && git commit -m "Description..."`
 
-3. **Merge and Deploy to GitHub (REQUIRED):**
-   ```bash
-   # Push worktree branch first
-   GIT_SSH_COMMAND="ssh -p 443" git push git@ssh.github.com:djenkins452/beaconinnovation.git <branch>
+3. **Merge/deploy only on explicit authorization (NOT part of "completion").**
+   Do not merge to `main`, push to `main`, or deploy to finish a task. Completion
+   means: changelog updated, changes committed to a **feature branch**, and — when
+   explicitly told to — pushed to that feature branch. Merging to `main`
+   auto-deploys to Railway, so it happens only on explicit instruction and only
+   after verifying the push/PR cannot trigger an unwanted deployment or a paid
+   preview (see Standing Constraints).
 
-   # Then merge to main from main repo
-   cd /Users/dannyjenkins/Projects/beaconinnovation
-   GIT_SSH_COMMAND="ssh -p 443" git fetch git@ssh.github.com:djenkins452/beaconinnovation.git <branch>:refs/remotes/origin/<branch>
-   git checkout main && git merge origin/<branch> --no-edit
-   GIT_SSH_COMMAND="ssh -p 443" git push git@ssh.github.com:djenkins452/beaconinnovation.git main
-   ```
-
-**DO NOT** consider a phase complete until changes are merged to main and pushed to GitHub.
-
-**Note:** Use SSH on port 443 (`ssh -p 443` via `ssh.github.com`) as port 22 may timeout.
+**Note:** When explicitly authorized to push a feature branch, SSH over port 443
+works (`GIT_SSH_COMMAND="ssh -p 443"` via `ssh.github.com`) if port 22 times out.
 
 ---
 

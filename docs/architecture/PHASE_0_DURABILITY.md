@@ -49,8 +49,9 @@ All on branch `phase-0-durable-db`. Nothing merged; nothing deployed.
 | `.env.example` | Documents `DATABASE_URL`, `PLATFORM_DATABASE_URL`, Django vars (no secrets). | Onboarding + matches compose defaults. |
 | `.github/workflows/ci.yml` | **Removed** (no hosted CI — standing constraint). Tests run locally against PostgreSQL via `docker compose up -d` + `python manage.py test`. | No GitHub Actions / hosted CI. |
 | `scripts/phase0_migrate/export_legacy_sqlite.py` | Standalone one-time SQLite→fixture exporter (independent of the Postgres-only settings). | Migrate legacy data. |
-| `scripts/phase0_migrate/verify_parity.py` | Compares per-table row counts (SQLite source vs Postgres target); exits non-zero on mismatch. | Prove a restore actually recovered the data. |
-| `scripts/phase0_migrate/preflight_restore_check.py` | Read-only safety gate: refuses to green-light `flush` unless the target holds only freshly-seeded data; prints the target host/db. | Prevent flushing a populated or wrong database. |
+| `scripts/phase0_migrate/verify_parity.py` | Compares **content and relationships** (not just counts): normalized, hashed per-table digests across backends; user/group membership + permissions, financial values, receipt paths, FK orphan checks. Never prints values. Connects via full `DATABASE_URL`. | Prove a restore recovered the data faithfully, incl. equal-count corruption. |
+| `scripts/phase0_migrate/preflight_restore_check.py` | Read-only safety gate: requires `--expect-db`, inspects **every** table, permits only the verified seed baseline (else blocks), and blocks if any other client is connected. Connects via full `DATABASE_URL`. | Prevent flushing a populated, mis-identified, or live database. |
+| `scripts/phase0_migrate/test_phase0_tooling.py` | Local-PostgreSQL tests for the two scripts (fresh-pass, mis-named-block, populated-block, faithful-restore-verify, equal-count-corruption-detect). | Prove the tooling's safety guarantees locally (no hosted CI). |
 | `.gitignore` | Ignore `backups/`. | Never commit data dumps. |
 | `db.sqlite3` | **Untracked** via `git rm --cached` (local file kept). | Stop exposing a database (incl. password hashes) in the repo. |
 
@@ -73,7 +74,8 @@ Run on a local PostgreSQL 16 server with two throwaway databases (`beacon_p0`, `
 - **Guardrail — no silent SQLite, every alias:** a `sqlite:///…` URL is rejected for **both** `DATABASE_URL` and `PLATFORM_DATABASE_URL` (the error names the offending variable). The `_require_postgres()` guard runs on every configured alias. Because all environments (local dev, automated tests, staging, production) import the same `settings.py`, the Postgres-only rule applies uniformly to all of them — there is no environment-specific SQLite path. (Tests run locally against PostgreSQL; there is no hosted CI.) aegis isolation is unchanged (router untouched). ✅
 - **Migrations:** `migrate` (default) and `migrate --database=platform` both succeed on Postgres. ✅
 - **aegis isolation (verified both directions):** platform DB contains **only** `aegis_*` tables (15) + `django_migrations`; default DB contains finance/wlj/products/auth/etc. and **no** `aegis_*` tables. (Note: migration *records* appear in both `django_migrations` tables — standard Django multi-DB behavior — but no schema or data leaks across; `allow_migrate` gated all table creation and the data-seeding `RunPython`.) ✅
-- **Data migration + restore + parity:** `migrate → flush → loaddata(fixture) → sqlsequencereset` restored all data; `verify_parity.py` reported **VERIFIED — all 17 migrated tables match** the SQLite source. ✅
+- **Data migration + restore + parity:** `migrate → preflight(--expect-db) → flush → loaddata(fixture) → sqlsequencereset` restored all data; `verify_parity.py` reported **VERIFIED** — content digests, counts, and FK relationships match the SQLite source (not just row counts). ✅
+- **Tooling tests (`test_phase0_tooling.py`, local PostgreSQL): 5/5 passing** — preflight PASSES on a fresh target, BLOCKS a mis-named target, BLOCKS a populated target; a faithful restore VERIFIES; and **equal-count value corruption is DETECTED**. Two latent tool bugs were found and fixed while writing the tests: the standalone exporter didn't put the repo root on `sys.path`, and the preflight seed baseline omitted the one superuser that `finance` migration `0006` always creates. ✅
 - **Receipt upload/retrieval:** exercised by the finance receipt/OCR test suites (`test_receipts.py`, `test_ocr.py`) against Postgres + the local `FileField`, including the access-checked retrieval path. ✅
 - **Backup restored into a fresh, isolated DB:** created an empty `beacon_restore_test`, ran migrate → flush → loaddata → sqlsequencereset, and `verify_parity.py` reported **VERIFIED**. Spot-check confirmed 3 users recovered with **password hashes intact**, 3 accounts, 15 categories. (Run with no `PLATFORM_DATABASE_URL`, also proving the default DB works standalone while `/platform/` stays fail-closed.) ✅
 - **Full test suite on PostgreSQL:** **574 tests, 573 passing, 1 known failure.** The one failure is `products…BootstrapCommandTests.test_publishes_committed_aims_build`. **Evidence it is pre-existing and backend-independent:**
@@ -123,10 +125,11 @@ export PLATFORM_DATABASE_URL=postgres://USER:PASS@HOST:PORT/beacon_platform   # 
 python manage.py migrate --noinput
 python manage.py migrate --database=platform --noinput          # only if platform in use
 
-# 4. SAFETY GATE — must print "SAFE" before the destructive flush in step 5.
-#    Prints the target host/db and refuses if it holds ANY real data or is not a
-#    freshly-migrated database. Abort if it does not print SAFE.
-python scripts/phase0_migrate/preflight_restore_check.py
+# 4. SAFETY GATE — must print "PASSED" before the destructive flush in step 5.
+#    You must NAME the target (--expect-db); it refuses if the live connection is a
+#    different database, if ANY table holds unexpected (non-seed) data, or if another
+#    client is connected. Abort unless it prints PASSED.
+python scripts/phase0_migrate/preflight_restore_check.py --expect-db beacon
 
 # 5. Clear ONLY the freshly-seeded reference rows so the fixture is authoritative.
 #    Run ONLY after step 4 printed SAFE.
@@ -149,7 +152,14 @@ python scripts/phase0_migrate/verify_parity.py --sqlite /path/to/source_db.sqlit
 **Keys/constraints:** finance + admin_console use **UUID** PKs (no sequence issues). `products`/`wlj`/`auth` use integer PKs — step 7 resets their sequences. FKs are preserved via natural keys (`--natural-foreign`); `contenttypes`/`permissions` are recreated by `migrate`/`flush` and intentionally excluded from the fixture.
 
 ### 4.3 Restore verification into an isolated environment
-`verify_parity.py` is the gate: it reads the source SQLite directly and the target Postgres via `DATABASE_URL`, compares per-table counts, and **exits non-zero on any mismatch**. A backup is only "verified" once this passes against a freshly-restored database.
+`verify_parity.py` is the gate. It reads the source SQLite directly and the target Postgres via the full `DATABASE_URL` (honoring `sslmode`), and for the important tables it compares **content and relationships**, not just row counts: it normalizes values across backends (money to fixed scale, dates to ISO, booleans to 0/1, UUIDs lower-cased, NULLs explicit), then compares a **SHA-256 digest** of the sorted rows — so a changed value is caught even when the count is unchanged. It covers user/group membership and permissions (by stable codename, since permission ids differ between databases), financial values, receipt paths, and the finance foreign-key relationships (orphan checks on the target). **No sensitive values are printed** — only table names, counts, and short digests. It exits non-zero on any mismatch. A backup is "verified" only once this passes against a freshly-restored database.
+
+**Tooling tests (local PostgreSQL, no hosted CI).** The scripts ship with tests proving these guarantees:
+```bash
+./venv/bin/python scripts/phase0_migrate/test_phase0_tooling.py \
+  --pg-base postgres://USER@localhost:5432 --source-sqlite db.sqlite3
+```
+They assert: preflight PASSES on a fresh target; BLOCKS a mis-named target; BLOCKS a populated target; a faithful restore VERIFIES; and **equal-count corruption is DETECTED**.
 
 ### 4.4 Rollback — depends on whether PostgreSQL has accepted production writes
 
@@ -215,11 +225,27 @@ These require Railway access I do not have. None of this has been done.
 2. **Set `DJANGO_SECRET_KEY`** (strong, unique) and `DJANGO_DEBUG=False`.
 3. **Receipt durability:** mount a **persistent Volume** (**💰 paid — needs cost approval first**) and set `DJANGO_MEDIA_ROOT` to its mount path (e.g. `/data/media`). Copy existing receipt files in and **verify them** — see **§4.5** for the rsync + checksum procedure, the "references resolve" check, and joint DB+file backup/restore. Keep receipts private — served only through the access-checked view, never `/static/` or a CDN. (Receipt-file durability in prod is currently **unverified**.)
 4. **(Optional) platform DB:** only set `PLATFORM_DATABASE_URL` when the aegis platform DB is provisioned. Leaving it unset keeps `/platform/` failing closed, Beacon unaffected.
-5. **Capture production data first** (§4.1) from the current deploy **before** deploying this branch.
-6. **Deploy, run the migration (§4.2), and verify parity (§4.3)** against production data.
-7. Confirm `runtime.txt` (3.13.1) vs the actually-deployed Python; align if needed.
+5. **Confirm the Python runtime** — `runtime.txt` says 3.13.1; the local venv/tests use 3.12. Align production to the intended version.
 
-> ⚠️ Because `DATABASE_URL` is now mandatory, **merging this branch without `DATABASE_URL` set in production will make the app fail to boot** (by design). Set the env vars **before** deploying.
+### 5.1 Cutover sequence — restore BEFORE cutover, with writes frozen
+
+The `Procfile` starts Gunicorn immediately after `migrate`/bootstrap, so a naïve "deploy then restore" would let production serve — and accept writes — on a half-restored database. To prevent that, **fully restore and verify the new PostgreSQL while production is NOT pointed at it, and freeze writes on the source while you capture it.** Production never accepts writes on a database that has not finished restoration and verification.
+
+**Maintenance (write-freeze) mechanism — pick per how the source stores data:**
+- **If the current prod DB is on a persistent volume:** take the web service offline for the freeze+dump (Railway → the service → scale replicas to **0**, or Pause). The volume keeps the data; a separate job can read it.
+- **If the current prod DB is ephemeral SQLite (the likely case):** do **not** change env vars or redeploy to "enter maintenance" — that restarts the container and destroys the only copy. Capture the data from the **running** instance and stop using the app for the short window. For a single-operator business, a self-imposed "no data entry during cutover" is the write freeze.
+
+**Ordered steps:**
+1. **Freeze writes** on current production (mechanism above).
+2. **Capture prod data** from the frozen source (§4.1). For ephemeral SQLite, run `dumpdata` **inside the running instance** (e.g. `railway ssh` into it) and download the fixture — a one-off `railway run` job would get a fresh empty SQLite, not the live data.
+3. **Provision** the new PostgreSQL (and receipt Volume) — 💰 only after cost approval (cost gate above).
+4. **Restore + verify OFFLINE**, production still NOT using the new DB: run the §4.2 sequence (createdb → migrate → preflight `--expect-db` → flush → loaddata → sqlsequencereset) and §4.3 `verify_parity` against the captured source; copy + verify receipt files (§4.5).
+5. **Cut over only after verification passes:** set `DATABASE_URL` (and `DJANGO_MEDIA_ROOT`) on the Beacon service to the new, already-restored DB, then deploy. The Procfile's `migrate` is now a no-op; Gunicorn serves on verified data.
+6. **End the freeze.** Keep the pre-cutover source + fixture as recovery copies until a bake-in period passes (§4.4).
+
+> ⚠️ `DATABASE_URL` is mandatory — deploying without it set makes the app fail to boot (by design). Set env vars **before** the cutover deploy.
+
+> 🔐 **Security note (pre-existing, flagged not fixed).** `finance/migrations/0006_create_superuser` creates superuser `dannyjenkins71@gmail.com` with a **hardcoded password** on any fresh `migrate`. The restore's `flush` removes it and `loaddata` restores the real users, so a *properly restored* DB does not keep it — but a bare `migrate` without the restore would. After cutover, confirm no hardcoded-password superuser remains and rotate credentials. Changing that migration is outside Phase 0 scope.
 
 ---
 
