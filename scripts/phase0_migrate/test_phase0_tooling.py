@@ -68,10 +68,17 @@ def main():
     admin_url = f"{base}/postgres"
 
     # Clean, isolated subprocess env: only this test DB; no inherited platform/superuser config.
+    # PLATFORM_DATABASE_URL and DJANGO_SUPERUSER_PASSWORD are set to EMPTY strings (not
+    # merely unset) so python-dotenv's load_dotenv(override=False) in settings.py cannot
+    # repopulate them from a local .env — an empty value is still "present".
     env = dict(os.environ)
-    env.update({"DATABASE_URL": url, "DJANGO_SECRET_KEY": "tooltest", "DJANGO_DEBUG": "False"})
-    for k in ("PLATFORM_DATABASE_URL", "DJANGO_SUPERUSER_PASSWORD"):
-        env.pop(k, None)
+    env.update({
+        "DATABASE_URL": url,
+        "DJANGO_SECRET_KEY": "tooltest",
+        "DJANGO_DEBUG": "False",
+        "PLATFORM_DATABASE_URL": "",
+        "DJANGO_SUPERUSER_PASSWORD": "",
+    })
 
     synthetic = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False).name
     os.unlink(synthetic)  # generator writes it fresh
