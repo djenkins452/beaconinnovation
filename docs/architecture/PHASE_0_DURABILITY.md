@@ -49,9 +49,12 @@ All on branch `phase-0-durable-db`. Nothing merged; nothing deployed.
 | `.env.example` | Documents `DATABASE_URL`, `PLATFORM_DATABASE_URL`, Django vars (no secrets). | Onboarding + matches compose defaults. |
 | `.github/workflows/ci.yml` | **Removed** (no hosted CI — standing constraint). Tests run locally against PostgreSQL via `docker compose up -d` + `python manage.py test`. | No GitHub Actions / hosted CI. |
 | `scripts/phase0_migrate/export_legacy_sqlite.py` | Standalone one-time SQLite→fixture exporter (independent of the Postgres-only settings). | Migrate legacy data. |
-| `scripts/phase0_migrate/verify_parity.py` | Compares **content and relationships** (not just counts): normalized, hashed per-table digests across backends; user/group membership + permissions, financial values, receipt paths, FK orphan checks. Never prints values. Connects via full `DATABASE_URL`. | Prove a restore recovered the data faithfully, incl. equal-count corruption. |
-| `scripts/phase0_migrate/preflight_restore_check.py` | Read-only safety gate: requires `--expect-db`, inspects **every** table, permits only the verified seed baseline (else blocks), and blocks if any other client is connected. Connects via full `DATABASE_URL`. | Prevent flushing a populated, mis-identified, or live database. |
-| `scripts/phase0_migrate/test_phase0_tooling.py` | Local-PostgreSQL tests for the two scripts (fresh-pass, mis-named-block, populated-block, faithful-restore-verify, equal-count-corruption-detect). | Prove the tooling's safety guarantees locally (no hosted CI). |
+| `scripts/phase0_migrate/verify_parity.py` | Compares **content and relationships**, not just counts: cross-backend normalized values (**UUIDs via `uuid.UUID`**, money/dates/bools), per-table SHA-256 digests; covers user/group membership + permissions, finance accounts/categories/transactions/receipts (incl. ownership + paths)/recurring/tax alerts, products + authorized users, wlj, admin tasks, audit log, CSV imports; FK orphan checks; documents its exclusions. Never prints values. Full `DATABASE_URL`. | Prove a faithful restore, incl. equal-count corruption. |
+| `scripts/phase0_migrate/preflight_restore_check.py` | Read-only gate: requires `--expect-db`; inspects **every** table; validates seed **contents** of finance Category/Account (not just counts); requires all other app tables empty; reports other connections (point-in-time detection, not a freeze). Full `DATABASE_URL`. | Prevent flushing a populated, modified-seed, mis-identified, or live DB. |
+| `scripts/phase0_migrate/make_synthetic_legacy_db.py` | Generates a synthetic legacy SQLite DB (users, memberships, permissions, transactions, receipts, recurring, product membership) with no real data. | Reproducible tests from a clean checkout. |
+| `scripts/phase0_migrate/test_phase0_tooling.py` | Local-PostgreSQL tests (11 checks): preflight fresh-pass / wrong-name-block / populated-block / modified-seed-block; faithful restore with UUID relations verifies; corruption of financial value, receipt path, ownership, permission, relationship each detected. Creates/drops a uniquely-named DB on the supplied **local** server; never touches a pre-existing DB. | Prove the tooling's guarantees locally (no hosted CI). |
+| `finance/migrations/0006_create_superuser.py` | Env-gate the superuser (remove hardcoded password); skip when `DJANGO_SUPERUSER_PASSWORD` unset. | Remove a hardcoded admin credential from source (§4.6). |
+| `products/tests.py` | One test now provisions its own admin (0006 no longer seeds one). | Keep the suite green after the 0006 fix. |
 | `.gitignore` | Ignore `backups/`. | Never commit data dumps. |
 | `db.sqlite3` | **Untracked** via `git rm --cached` (local file kept). | Stop exposing a database (incl. password hashes) in the repo. |
 
@@ -75,10 +78,10 @@ Run on a local PostgreSQL 16 server with two throwaway databases (`beacon_p0`, `
 - **Migrations:** `migrate` (default) and `migrate --database=platform` both succeed on Postgres. ✅
 - **aegis isolation (verified both directions):** platform DB contains **only** `aegis_*` tables (15) + `django_migrations`; default DB contains finance/wlj/products/auth/etc. and **no** `aegis_*` tables. (Note: migration *records* appear in both `django_migrations` tables — standard Django multi-DB behavior — but no schema or data leaks across; `allow_migrate` gated all table creation and the data-seeding `RunPython`.) ✅
 - **Data migration + restore + parity:** `migrate → preflight(--expect-db) → flush → loaddata(fixture) → sqlsequencereset` restored all data; `verify_parity.py` reported **VERIFIED** — content digests, counts, and FK relationships match the SQLite source (not just row counts). ✅
-- **Tooling tests (`test_phase0_tooling.py`, local PostgreSQL): 5/5 passing** — preflight PASSES on a fresh target, BLOCKS a mis-named target, BLOCKS a populated target; a faithful restore VERIFIES; and **equal-count value corruption is DETECTED**. Two latent tool bugs were found and fixed while writing the tests: the standalone exporter didn't put the repo root on `sys.path`, and the preflight seed baseline omitted the one superuser that `finance` migration `0006` always creates. ✅
+- **Tooling tests (`test_phase0_tooling.py`, local PostgreSQL): 11/11 passing** — now reproducible from a clean checkout via a synthetic legacy DB (no real data). Covers: preflight fresh-pass / wrong-name-block / populated-block / **modified-seed-account-block (same count)**; a faithful restore **with receipts + recurring (non-null UUID relationships)** verifies; and verify_parity detects equal-count corruption of a **financial value, receipt path, receipt ownership, a permission, and a relationship**. Latent bugs found + fixed via these tests: canonical UUID normalization (SQLite's unhyphenated vs Postgres's hyphenated UUIDs — the earlier faithful-restore test had zero receipts/recurring so it never exercised this), the exporter's `sys.path`, and the preflight seed baseline. ✅
 - **Receipt upload/retrieval:** exercised by the finance receipt/OCR test suites (`test_receipts.py`, `test_ocr.py`) against Postgres + the local `FileField`, including the access-checked retrieval path. ✅
 - **Backup restored into a fresh, isolated DB:** created an empty `beacon_restore_test`, ran migrate → flush → loaddata → sqlsequencereset, and `verify_parity.py` reported **VERIFIED**. Spot-check confirmed 3 users recovered with **password hashes intact**, 3 accounts, 15 categories. (Run with no `PLATFORM_DATABASE_URL`, also proving the default DB works standalone while `/platform/` stays fail-closed.) ✅
-- **Full test suite on PostgreSQL:** **574 tests, 573 passing, 1 known failure.** The one failure is `products…BootstrapCommandTests.test_publishes_committed_aims_build`. **Evidence it is pre-existing and backend-independent:**
+- **Full test suite on PostgreSQL:** **574 tests, 573 passing, 1 known failure** (rerun after the `finance/0006` remediation + the products-test update — unchanged result). The one failure is `products…BootstrapCommandTests.test_publishes_committed_aims_build`. **Evidence it is pre-existing and backend-independent:**
   1. It was reproduced on the **baseline** — with all Phase 0 changes stashed and the original SQLite settings active, the test fails identically: `AssertionError: False is not true` at `products/tests.py:365` (`self.assertTrue(aims.is_available)`).
   2. `git diff HEAD -- products/` is **empty** — no products code or test was touched; the test is byte-identical to the branch point.
   3. The assertion is about **file availability** (`is_available` = the committed `AIMSField.ipa` being published by `bootstrap_portal`), which has no dependency on the database backend. It matches the project's own prior record of this test as a known pre-existing failure.
@@ -145,7 +148,7 @@ for app in products wlj auth admin admin_console; do python manage.py sqlsequenc
 python scripts/phase0_migrate/verify_parity.py --sqlite /path/to/source_db.sqlite3
 ```
 
-**Why `flush` is needed (and why it is safe here).** The seed migrations `finance/migrations/0002_seed_default_categories` and `0003_seed_default_accounts` call `create()` without explicit PKs, so every run generates **new random `uuid4` PKs**. Loading the fixture (whose rows carry the *source* UUIDs) onto those freshly-seeded rows would violate the `unique(name, category_type)` constraint. `flush` removes the just-seeded rows (keeping the schema; `contenttypes`/`permissions` are recreated by its `post_migrate`). Because step 1 creates an **empty** database and step 4 **refuses to proceed if any real data is present**, `flush` can only ever clear seed data — never real records, never the wrong database.
+**Why `flush` is needed, and what its safety actually depends on.** The seed migrations `finance/migrations/0002_seed_default_categories` and `0003_seed_default_accounts` call `create()` without explicit PKs, so every run generates **new random `uuid4` PKs**. Loading the fixture (whose rows carry the *source* UUIDs) onto those freshly-seeded rows would violate the `unique(name, category_type)` constraint. `flush` removes the just-seeded rows (keeping the schema; `contenttypes`/`permissions` are recreated by its `post_migrate`). `flush` is destructive and its safety is **not absolute** — it rests on three things held together: (a) restoring into a **freshly created** database; (b) the **step-4 gate** confirming target identity (`--expect-db`) and the seed baseline — counts **and** category/account contents — with no other connection at that moment; and (c) an **operational write freeze** (app offline) maintained throughout. With all three, `flush` clears only seed data; if any is missing it could clear real records or the wrong database. The gate reduces risk; it does not by itself guarantee the target is pristine or stays quiescent.
 
 **No destructive step runs automatically.** `flush` exists only in this operator-run runbook. The `Procfile` runs `migrate` plus idempotent seed/bootstrap commands at deploy — it contains **no** `flush`, `reset`, drop, or truncate. Never add a destructive command to startup or deploy.
 
@@ -154,12 +157,12 @@ python scripts/phase0_migrate/verify_parity.py --sqlite /path/to/source_db.sqlit
 ### 4.3 Restore verification into an isolated environment
 `verify_parity.py` is the gate. It reads the source SQLite directly and the target Postgres via the full `DATABASE_URL` (honoring `sslmode`), and for the important tables it compares **content and relationships**, not just row counts: it normalizes values across backends (money to fixed scale, dates to ISO, booleans to 0/1, UUIDs lower-cased, NULLs explicit), then compares a **SHA-256 digest** of the sorted rows — so a changed value is caught even when the count is unchanged. It covers user/group membership and permissions (by stable codename, since permission ids differ between databases), financial values, receipt paths, and the finance foreign-key relationships (orphan checks on the target). **No sensitive values are printed** — only table names, counts, and short digests. It exits non-zero on any mismatch. A backup is "verified" only once this passes against a freshly-restored database.
 
-**Tooling tests (local PostgreSQL, no hosted CI).** The scripts ship with tests proving these guarantees:
+**Tooling tests (local PostgreSQL, no hosted CI).** Reproducible from a clean checkout — they generate a synthetic legacy DB (no real data) and need only a local server:
 ```bash
 ./venv/bin/python scripts/phase0_migrate/test_phase0_tooling.py \
-  --pg-base postgres://USER@localhost:5432 --source-sqlite db.sqlite3
+  --pg-base postgres://USER@localhost:5432
 ```
-They assert: preflight PASSES on a fresh target; BLOCKS a mis-named target; BLOCKS a populated target; a faithful restore VERIFIES; and **equal-count corruption is DETECTED**.
+They assert (11 checks): preflight PASSES on a fresh target; BLOCKS a mis-named target; BLOCKS a populated target; **BLOCKS a modified seed account at the same row count**; a faithful restore **with receipts + recurring (non-null UUID relationships)** VERIFIES; and verify_parity DETECTS equal-count corruption of a **financial value, receipt path, receipt ownership, a permission, and a relationship**.
 
 ### 4.4 Rollback — depends on whether PostgreSQL has accepted production writes
 
@@ -213,6 +216,23 @@ Receipts are sensitive financial documents stored on a private `FileField` (`fin
 - Snapshot DB **and** files in the same maintenance window — a row without its file (or vice-versa) is a broken receipt.
 - Restore = restore the DB (`pg_restore`/`loaddata`) **and** extract files back under `DJANGO_MEDIA_ROOT`, then re-run step 4's "references resolve" check.
 
+### 4.6 Legacy admin credential — remediation (do NOT run against live accounts without authorization)
+
+`finance/migrations/0006_create_superuser` previously created a superuser with a **hardcoded password** on every fresh `migrate`. **Restoring password hashes does not remove this risk**, because:
+- the password was in source and **remains in git history** for the old revision — anyone with repo access has it;
+- any environment where that migration already ran (local dev, prior deploys) still has that superuser with the known password until it is **rotated**;
+- before this change, every fresh `migrate` re-created it.
+
+**Remediation applied in this branch (safe; no live-account change):** the migration no longer hardcodes a password — creation is gated on `DJANGO_SUPERUSER_PASSWORD` and skipped when unset (matching `wlj/0002` and the bootstrap command). Editing an already-applied migration does **not** re-run it, so existing accounts are untouched; it only governs fresh migrations. A fresh `migrate` now creates **no** superuser — the real users come from the restore's `loaddata`. The dependent test was updated to provision its own admin.
+
+**Credential-reset procedure (operator-run, WITH authorization — not executed here):**
+1. Identify affected environments (anywhere `0006` ran): the local dev DB and any prior deploy.
+2. Rotate the credential: `python manage.py changepassword dannyjenkins71@gmail.com` (new secret), or, if the account is unused, disable it via `manage.py shell` → `user.set_unusable_password(); user.save()`.
+3. Verify the old credential no longer authenticates and that no other account shares it.
+4. Historical exposure: rotating the password is the functional fix; purging it from git history is a separate, deliberate `git filter-repo` task (same category as the tracked-`db.sqlite3` history note in §2).
+
+*(The credential itself is not reproduced here or in code.)*
+
 ---
 
 ## 5. Production configuration steps **you** must perform
@@ -245,7 +265,7 @@ The `Procfile` starts Gunicorn immediately after `migrate`/bootstrap, so a naïv
 
 > ⚠️ `DATABASE_URL` is mandatory — deploying without it set makes the app fail to boot (by design). Set env vars **before** the cutover deploy.
 
-> 🔐 **Security note (pre-existing, flagged not fixed).** `finance/migrations/0006_create_superuser` creates superuser `dannyjenkins71@gmail.com` with a **hardcoded password** on any fresh `migrate`. The restore's `flush` removes it and `loaddata` restores the real users, so a *properly restored* DB does not keep it — but a bare `migrate` without the restore would. After cutover, confirm no hardcoded-password superuser remains and rotate credentials. Changing that migration is outside Phase 0 scope.
+> 🔐 **Security note.** `finance/migrations/0006` previously created a superuser with a **hardcoded password**; it is now env-gated (no hardcoded secret) — see **§4.6** for the full remediation and the operator credential-reset procedure. Environments where the old migration already ran still hold that credential until rotated, and it remains in git history; rotate per §4.6 after cutover.
 
 ---
 

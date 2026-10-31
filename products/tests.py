@@ -345,8 +345,13 @@ class BootstrapCommandTests(TestCase):
         self.assertTrue(aims.authorized_users.filter(pk=admin.pk).exists())
 
     def test_leaves_existing_admin_completely_unchanged(self):
-        # finance/0006 already created this admin in the migrated test DB.
-        admin = User.objects.get(username=ADMIN_USERNAME)
+        # finance/0006 no longer creates a hardcoded-password admin (security fix),
+        # so this test provisions its own pre-existing admin to prove bootstrap
+        # leaves an existing account untouched.
+        User.objects.filter(username=ADMIN_USERNAME).delete()
+        admin = User.objects.create_superuser(
+            username=ADMIN_USERNAME, email=ADMIN_USERNAME, password='pre-existing-test-pass-123'
+        )
         old_password_hash = admin.password
         out = self._run()
         admin.refresh_from_db()
