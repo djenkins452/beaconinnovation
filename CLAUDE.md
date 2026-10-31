@@ -70,7 +70,7 @@ source /Users/dannyjenkins/Projects/beaconinnovation/venv/bin/activate
 
 ## Tech Stack
 
-- Django 5.x | PostgreSQL (prod) / SQLite (dev)
+- Django 5.x | PostgreSQL (ALL environments — no SQLite anywhere)
 - Railway deployment | Gunicorn WSGI
 - Cloudinary for file storage (shared with WLJ)
 - Tesseract for OCR
@@ -223,7 +223,7 @@ SECRET_KEY=your-secret-key
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1,beacon-innovation.com
 
-# Database (prod only)
+# Database (REQUIRED in every environment — PostgreSQL only, no SQLite)
 DATABASE_URL=postgresql://...
 
 # Cloudinary (shared with WLJ)
