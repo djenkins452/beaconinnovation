@@ -5,7 +5,10 @@
 **Status:** Code complete and **locally validated against PostgreSQL**. **Awaiting live production cutover** (deliberately not performed — see §6).
 **Scope guardrail:** Durability + recovery only. **No** inventory, orders, customers, recipes, costing, storefront, schedulers, or dashboards were added.
 
-> **Hard requirement applied:** PostgreSQL is mandatory in **every** environment — local dev, automated tests, CI, staging, and production. SQLite has been removed entirely; there is no SQLite configuration and no fallback.
+> **Standing constraints applied** (see `CLAUDE.md` → Standing Constraints):
+> - **PostgreSQL mandatory in every environment** — local dev, automated tests, staging, production. SQLite removed entirely; no configuration, no fallback.
+> - **No hosted CI** — no GitHub Actions / GitHub-hosted testing / cloud CI. Tests run **locally** against PostgreSQL. (The CI workflow briefly added during Phase 0 has been removed.)
+> - **No paid services without prior cost approval** — managed PostgreSQL, persistent storage, backups, previews, etc. require a one-time/recurring/usage cost breakdown and explicit approval *before* provisioning. Local PostgreSQL (Docker/Homebrew) is free and satisfies the requirement for dev/test.
 
 ---
 
@@ -44,7 +47,7 @@ All on branch `phase-0-durable-db`. Nothing merged; nothing deployed.
 | `docker-compose.yml` | PostgreSQL 16 service; provisions `beacon` + `beacon_platform` DBs. | One-command local Postgres. |
 | `scripts/phase0_migrate/initdb/01-create-platform-db.sql` | Creates the separate `beacon_platform` DB on first `docker compose up`. | Keep the two DBs separate locally too. |
 | `.env.example` | Documents `DATABASE_URL`, `PLATFORM_DATABASE_URL`, Django vars (no secrets). | Onboarding + matches compose defaults. |
-| `.github/workflows/ci.yml` | CI runs `check` + migrations + full test suite **against a Postgres service**, with an isolated test DB. | Tests/CI on Postgres; never SQLite. |
+| `.github/workflows/ci.yml` | **Removed** (no hosted CI — standing constraint). Tests run locally against PostgreSQL via `docker compose up -d` + `python manage.py test`. | No GitHub Actions / hosted CI. |
 | `scripts/phase0_migrate/export_legacy_sqlite.py` | Standalone one-time SQLite→fixture exporter (independent of the Postgres-only settings). | Migrate legacy data. |
 | `scripts/phase0_migrate/verify_parity.py` | Compares per-table row counts (SQLite source vs Postgres target); exits non-zero on mismatch. | Prove a restore actually recovered the data. |
 | `scripts/phase0_migrate/preflight_restore_check.py` | Read-only safety gate: refuses to green-light `flush` unless the target holds only freshly-seeded data; prints the target host/db. | Prevent flushing a populated or wrong database. |
@@ -67,7 +70,7 @@ All on branch `phase-0-durable-db`. Nothing merged; nothing deployed.
 Run on a local PostgreSQL 16 server with two throwaway databases (`beacon_p0`, `beacon_platform_p0`).
 
 - **Guardrail — missing config:** `manage.py check` with no `DATABASE_URL` → fails with a clear `ImproperlyConfigured` ("DATABASE_URL is not set… SQLite is no longer supported"). ✅
-- **Guardrail — no silent SQLite, every alias:** a `sqlite:///…` URL is rejected for **both** `DATABASE_URL` and `PLATFORM_DATABASE_URL` (the error names the offending variable). The `_require_postgres()` guard runs on every configured alias. Because all environments (local dev, automated tests, CI, staging, production) import the same `settings.py`, the Postgres-only rule applies uniformly to all of them — there is no environment-specific SQLite path. aegis isolation is unchanged (router untouched). ✅
+- **Guardrail — no silent SQLite, every alias:** a `sqlite:///…` URL is rejected for **both** `DATABASE_URL` and `PLATFORM_DATABASE_URL` (the error names the offending variable). The `_require_postgres()` guard runs on every configured alias. Because all environments (local dev, automated tests, staging, production) import the same `settings.py`, the Postgres-only rule applies uniformly to all of them — there is no environment-specific SQLite path. (Tests run locally against PostgreSQL; there is no hosted CI.) aegis isolation is unchanged (router untouched). ✅
 - **Migrations:** `migrate` (default) and `migrate --database=platform` both succeed on Postgres. ✅
 - **aegis isolation (verified both directions):** platform DB contains **only** `aegis_*` tables (15) + `django_migrations`; default DB contains finance/wlj/products/auth/etc. and **no** `aegis_*` tables. (Note: migration *records* appear in both `django_migrations` tables — standard Django multi-DB behavior — but no schema or data leaks across; `allow_migrate` gated all table creation and the data-seeding `RunPython`.) ✅
 - **Data migration + restore + parity:** `migrate → flush → loaddata(fixture) → sqlsequencereset` restored all data; `verify_parity.py` reported **VERIFIED — all 17 migrated tables match** the SQLite source. ✅
@@ -167,7 +170,7 @@ Decide this explicitly before acting; the two cases are different.
   4. If you truly must leave Postgres, first migrate the **current** Postgres data (not the stale SQLite) to the destination, verify it, then cut over. Never discard the post-cutover writes.
 - The pre-cutover `db.sqlite3`, `.bak`, and fixture are a recovery copy of the state **at cutover time only** — they do **not** contain any post-cutover writes.
 
-**Routine backups once live:** schedule `pg_dump` and keep copies off the server; restore with `pg_restore`. This supersedes the one-time SQLite fixture, which exists only for the initial migration. Do not delete the pre-cutover SQLite recovery copy until Postgres has run clean in production for an agreed bake-in period.
+**Routine backups once live:** schedule `pg_dump` and keep copies off the server; restore with `pg_restore`. (Off-server/managed backup storage may be a **paid** service — subject to the cost gate in §5.) This supersedes the one-time SQLite fixture, which exists only for the initial migration. Do not delete the pre-cutover SQLite recovery copy until Postgres has run clean in production for an agreed bake-in period.
 
 ---
 
@@ -206,9 +209,11 @@ Receipts are sensitive financial documents stored on a private `FileField` (`fin
 
 These require Railway access I do not have. None of this has been done.
 
-1. **Provision managed PostgreSQL** for Beacon on Railway. Set `DATABASE_URL` on the Beacon service (use `?sslmode=require` if connecting over the public network).
+> 💰 **Cost gate (standing constraint).** Several steps below provision **paid** services — managed PostgreSQL, a persistent storage Volume, and backups all incur one-time/recurring/usage charges. Per the cost constraint, **do not provision them until the current pricing (one-time, recurring, usage-based) has been reviewed and explicitly approved.** If pricing is unclear, confirm it with the provider first. There is no free-tier obligation to meet here — local dev/test already runs on free local PostgreSQL; the paid items are production-only. Phase 0 does **not** provision anything; it only prepares the code and procedure.
+
+1. **Provision managed PostgreSQL** for Beacon (e.g. Railway). **💰 paid — needs cost approval first.** Then set `DATABASE_URL` on the Beacon service (use `?sslmode=require` if connecting over the public network).
 2. **Set `DJANGO_SECRET_KEY`** (strong, unique) and `DJANGO_DEBUG=False`.
-3. **Receipt durability:** mount a **persistent Volume** and set `DJANGO_MEDIA_ROOT` to its mount path (e.g. `/data/media`). Copy existing receipt files in and **verify them** — see **§4.5** for the rsync + checksum procedure, the "references resolve" check, and joint DB+file backup/restore. Keep receipts private — served only through the access-checked view, never `/static/` or a CDN. (Receipt-file durability in prod is currently **unverified**.)
+3. **Receipt durability:** mount a **persistent Volume** (**💰 paid — needs cost approval first**) and set `DJANGO_MEDIA_ROOT` to its mount path (e.g. `/data/media`). Copy existing receipt files in and **verify them** — see **§4.5** for the rsync + checksum procedure, the "references resolve" check, and joint DB+file backup/restore. Keep receipts private — served only through the access-checked view, never `/static/` or a CDN. (Receipt-file durability in prod is currently **unverified**.)
 4. **(Optional) platform DB:** only set `PLATFORM_DATABASE_URL` when the aegis platform DB is provisioned. Leaving it unset keeps `/platform/` failing closed, Beacon unaffected.
 5. **Capture production data first** (§4.1) from the current deploy **before** deploying this branch.
 6. **Deploy, run the migration (§4.2), and verify parity (§4.3)** against production data.

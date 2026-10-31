@@ -5,6 +5,15 @@
 
 ---
 
+## Standing Constraints (MUST follow — override convenience)
+
+1. **PostgreSQL only, every environment.** Local dev, automated tests, staging, and production all use PostgreSQL. SQLite is not permitted anywhere — no configuration, no fallback. `DATABASE_URL` is required and must be a PostgreSQL URL; missing/invalid config must fail loudly. The aegis `platform` database stays separate via `PlatformRouter`; never merge the databases.
+2. **No hosted CI.** Do not add GitHub Actions, GitHub-hosted testing, or any other hosted/cloud CI. Run the test suite **locally** against PostgreSQL (`docker compose up -d` provides a free local database; see `.env.example`).
+3. **No paid services or cost-increasing infrastructure without prior approval.** Before provisioning or changing anything that creates one-time, recurring, or usage-based charges — managed PostgreSQL, persistent storage/volumes, backups, storefronts, payment services, deployment previews, etc. — first explain the expected one-time, recurring, and usage-based costs and obtain explicit approval. If pricing is unknown, resolve that first. PostgreSQL remains mandatory; satisfy it with a free local setup.
+4. **No deploys/cutovers without explicit instruction.** Deploys are on `main` only. Do not push to `main`, merge, enable auto-merge, or perform a production cutover unless told to. Before pushing any branch or opening a PR, verify it cannot trigger a deployment or a (possibly paid) preview environment; if that cannot be established, stop and ask.
+
+---
+
 ## Quick Reference
 
 | Item | Value |
