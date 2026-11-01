@@ -47,10 +47,29 @@ urlpatterns = [
     path('documents/<uuid:document_id>/view/', views.document_view, name='document_view'),
     path('documents/<uuid:document_id>/download/', views.document_download, name='document_download'),
 
+    # Products, variants, recipes
+    path('products/', views.product_list, name='product_list'),
+    path('products/new/', views.product_create, name='product_create'),
+    path('products/<uuid:product_id>/', views.product_detail, name='product_detail'),
+    path('products/<uuid:product_id>/variants/add/', views.variant_create, name='variant_create'),
+    path('variants/<uuid:variant_id>/recipe/new/', views.recipe_create, name='recipe_create'),
+
+    # Finished goods
+    path('finished/', views.finished_goods, name='finished_goods'),
+
     # Printing
     path('prints/', views.print_list, name='print_list'),
     path('prints/new/', views.print_create, name='print_create'),
     path('prints/<uuid:print_id>/', views.print_detail, name='print_detail'),
+    path('prints/reconstruct/', views.reconstruct_guide, name='reconstruct_guide'),
+    path('api/recipe-expected/', views.recipe_expected, name='recipe_expected'),
+
+    # Internal orders (no payment)
+    path('orders/', views.order_list, name='order_list'),
+    path('orders/new/', views.order_create, name='order_create'),
+    path('orders/<uuid:order_id>/', views.order_detail, name='order_detail'),
+    path('orders/<uuid:order_id>/fulfill/', views.order_fulfill, name='order_fulfill'),
+    path('orders/<uuid:order_id>/cancel/', views.order_cancel, name='order_cancel'),
 
     # Inventory history + corrections
     path('history/', views.movement_list, name='movement_list'),

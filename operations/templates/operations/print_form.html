@@ -2,8 +2,10 @@
 {% block title %}Log a print{% endblock %}
 {% block content %}
 <h1>Log a print</h1>
-<div class="alert alert-info">Record what was printed and the filament it used. “Into part” and “Waste (purge/support)” are
-  deducted separately so waste is never double-counted. Failed prints still consume material — log the grams they used.</div>
+<div class="alert alert-info">Select the products made and the filament used. “Into part” and “Waste (purge/support)” are
+  deducted separately so waste is never double-counted — or tick <em>Total already includes waste</em> for a single
+  all-inclusive slicer figure. Failed prints still consume what you enter (actual/estimate), never the full plan.
+  Only <strong>Good units</strong> are added to finished inventory.</div>
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="submission_token" value="{{ submission_token }}">
@@ -17,23 +19,105 @@
   </div>
 
   <div class="card">
+    <h2>Products made</h2>
+    {{ pformset.management_form }}
+    {% if pformset.non_form_errors %}<div class="alert alert-error">{{ pformset.non_form_errors }}</div>{% endif %}
+    <table id="prod-table">
+      <tr><th>Product / variant</th><th>Planned</th><th>Good units</th></tr>
+      {% for pf in pformset %}
+      <tr>
+        <td>{{ pf.variant }}{{ pf.variant.errors }}</td>
+        <td>{{ pf.quantity_planned }}{{ pf.quantity_planned.errors }}</td>
+        <td>{{ pf.quantity_success }}{{ pf.quantity_success.errors }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="help mt-2">
+      <button type="button" class="btn btn-secondary btn-sm" id="prefill-btn">Suggest filament from recipe</button>
+      Prefills the filament rows below from the selected products’ current recipes (estimate). You still pick the spools.
+    </p>
+  </div>
+
+  <div class="card">
     <h2>Filament used</h2>
     {{ formset.management_form }}
     {% if formset.non_form_errors %}<div class="alert alert-error">{{ formset.non_form_errors }}</div>{% endif %}
     <table>
-      <tr><th>Spool</th><th>Into part (g)</th><th>Waste: purge/support (g)</th></tr>
+      <tr><th>Spool</th><th>Into part (g)</th><th>Waste: purge/support (g)</th><th>Source</th><th>All-inclusive</th></tr>
       {% for f in formset %}
       <tr>
         <td>{{ f.spool }}{{ f.spool.errors }}</td>
         <td>{{ f.grams_consumed }}{{ f.grams_consumed.errors }}</td>
         <td>{{ f.waste_grams }}{{ f.waste_grams.errors }}</td>
+        <td>{{ f.basis }}</td>
+        <td style="text-align:center;">{{ f.all_inclusive }}</td>
       </tr>
       {% endfor %}
     </table>
-    <p class="help mt-2">Add a row per spool (multicolor prints use several). Leave a row blank to skip it.</p>
+    <p class="help mt-2">One row per spool (multicolor prints use several). A batch may share purge/support —
+      enter the real total, don’t just multiply per-unit waste. Tick <em>All-inclusive</em> if “Into part” already
+      includes supports/purge (waste is then not added again).</p>
+  </div>
+
+  <div class="card">
+    <h2>Internal fulfillment (optional)</h2>
+    <label><input type="checkbox" name="fulfill_internal"> Immediately fulfill the good units as an internal order (no payment)</label>
+    <div class="form-group mt-2" style="max-width:320px;">
+      <label>Purpose</label>
+      <select name="fulfill_purpose" class="form-control">
+        {% for val, label in purpose_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <p class="help">Use this for items that went straight into your room. It records a separate internal order and
+      removes the finished units — it does <strong>not</strong> deduct filament again.</p>
   </div>
 
   <button type="submit" class="btn btn-primary">Log print & deduct filament</button>
   <a href="{% url 'operations:print_list' %}" class="btn btn-secondary">Cancel</a>
 </form>
+
+<script>
+(function () {
+  var btn = document.getElementById('prefill-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async function () {
+    // Gather products (variant + good units, falling back to planned).
+    var prodRows = document.querySelectorAll('#prod-table tr');
+    var totals = {}; // material name -> {g, w}
+    for (var i = 1; i < prodRows.length; i++) {
+      var sel = prodRows[i].querySelector('select');
+      var nums = prodRows[i].querySelectorAll('input[type=number]');
+      if (!sel || !sel.value) continue;
+      var qty = 0;
+      if (nums.length >= 2) qty = parseInt(nums[1].value || nums[0].value || '0', 10);
+      if (!qty) qty = parseInt((nums[0] && nums[0].value) || '0', 10);
+      if (!qty) continue;
+      try {
+        var resp = await fetch('{% url "operations:recipe_expected" %}?variant=' + encodeURIComponent(sel.value) + '&qty=' + qty);
+        var data = await resp.json();
+        data.rows.forEach(function (r) {
+          if (!totals[r.material]) totals[r.material] = {g: 0, w: 0};
+          totals[r.material].g += parseFloat(r.grams_consumed);
+          totals[r.material].w += parseFloat(r.waste_grams);
+        });
+      } catch (e) { /* ignore */ }
+    }
+    var names = Object.keys(totals);
+    if (!names.length) { alert('No current recipe found for the selected product(s). Enter filament manually.'); return; }
+    // Fill the filament rows' grams/waste and set Source=recipe (spool still chosen by you).
+    var useRows = document.querySelectorAll('table tr');
+    var filled = names.map(function (n) { return n + ': ' + totals[n].g.toFixed(2) + ' g + ' + totals[n].w.toFixed(2) + ' g waste'; });
+    // Put the first material's totals into the first filament row as a starting point.
+    var firstG = document.querySelector('input[name="use-0-grams_consumed"]');
+    var firstW = document.querySelector('input[name="use-0-waste_grams"]');
+    var firstBasis = document.querySelector('select[name="use-0-basis"]');
+    var sumG = names.reduce(function (a, n) { return a + totals[n].g; }, 0);
+    var sumW = names.reduce(function (a, n) { return a + totals[n].w; }, 0);
+    if (firstG) firstG.value = sumG.toFixed(2);
+    if (firstW) firstW.value = sumW.toFixed(2);
+    if (firstBasis) firstBasis.value = 'recipe';
+    alert('Recipe estimate (pick spools, then adjust):\n' + filled.join('\n'));
+  });
+})();
+</script>
 {% endblock %}

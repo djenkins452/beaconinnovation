@@ -125,3 +125,41 @@ class RenderSmokeTests(TestCase):
         for url in urls:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, msg=f'{url} -> {resp.status_code}')
+
+
+class Phase1bRenderSmokeTests(TestCase):
+    """New product/recipe/order/finished/reconstruct screens render for staff."""
+
+    def setUp(self):
+        from operations.models import PhysicalProduct, ProductVariant, InternalOrder
+        from operations import services
+        self.staff = User.objects.create_user('staff2', 's2@example.com', 'pw', is_staff=True)
+        self.client.force_login(self.staff)
+        self.product = PhysicalProduct.objects.create(name='Desk bin', internal_only=True)
+        self.variant = ProductVariant.objects.create(product=self.product, name='Default')
+        self.order = services.create_internal_order(
+            purpose='personal', actor=self.staff,
+            lines=[{'variant': self.variant, 'quantity': 1}])
+
+    def test_new_screens_render(self):
+        urls = [
+            reverse('operations:product_list'),
+            reverse('operations:product_create'),
+            reverse('operations:product_detail', args=[self.product.id]),
+            reverse('operations:recipe_create', args=[self.variant.id]),
+            reverse('operations:finished_goods'),
+            reverse('operations:print_create'),
+            reverse('operations:reconstruct_guide'),
+            reverse('operations:order_list'),
+            reverse('operations:order_create'),
+            reverse('operations:order_detail', args=[self.order.id]),
+        ]
+        for url in urls:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, msg=f'{url} -> {resp.status_code}')
+
+    def test_recipe_expected_json(self):
+        resp = self.client.get(reverse('operations:recipe_expected'),
+                               {'variant': str(self.variant.id), 'qty': '2'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['rows'], [])  # no recipe yet

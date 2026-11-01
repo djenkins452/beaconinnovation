@@ -1,0 +1,31 @@
+{% extends 'operations/base.html' %}
+{% block title %}Recipe — {{ variant }}{% endblock %}
+{% block content %}
+<h1>Print recipe — {{ variant }}</h1>
+<div class="alert alert-info">Expected filament per unit. Saving creates a <strong>new recipe version</strong>; past prints
+  keep the version they used, so this never rewrites history. Waste here is the <em>per-unit</em> component
+  (supports that scale with quantity) — shared batch purge is entered at print time, not here.</div>
+{% if current %}<p class="help">Current version: <strong>v{{ current.version }}</strong>. Saving makes a v{{ current.version|add:1 }}.</p>{% endif %}
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    {% for field in form %}
+      <div class="form-group" style="max-width:480px;"><label>{{ field.label }}</label>{{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+    {% endfor %}
+    <h2>Filament per unit</h2>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}<div class="alert alert-error">{{ formset.non_form_errors }}</div>{% endif %}
+    <table>
+      <tr><th>Filament</th><th>Into part /unit (g)</th><th>Waste /unit (g)</th></tr>
+      {% for f in formset %}
+      <tr><td>{{ f.material }}{{ f.material.errors }}</td>
+          <td>{{ f.grams_per_unit }}{{ f.grams_per_unit.errors }}</td>
+          <td>{{ f.waste_per_unit }}{{ f.waste_per_unit.errors }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <button type="submit" class="btn btn-primary">Save recipe version</button>
+  <a href="{% url 'operations:product_detail' variant.product_id %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

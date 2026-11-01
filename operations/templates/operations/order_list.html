@@ -1,0 +1,30 @@
+{% extends 'operations/base.html' %}
+{% block title %}Internal orders{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Internal orders</h1><a href="{% url 'operations:order_create' %}" class="btn btn-primary">New internal order</a></div>
+<div class="card">
+  <p class="help mb-2">Staff-only, <strong>no payment</strong>. Fulfillment removes finished units — never filament.
+    Kept entirely separate from any customer sales/revenue.</p>
+  {% if page.object_list %}
+  <table>
+    <tr><th>Date</th><th>Purpose</th><th>Status</th><th>Payment</th><th class="text-right">Lines</th></tr>
+    {% for o in page.object_list %}
+    <tr>
+      <td>{{ o.ordered_on }}</td>
+      <td><a href="{% url 'operations:order_detail' o.id %}">{{ o.get_purpose_display }}</a></td>
+      <td>{% if o.status == 'fulfilled' %}<span class="badge badge-green">Fulfilled</span>
+          {% elif o.status == 'cancelled' %}<span class="badge badge-grey">Cancelled</span>
+          {% else %}<span class="badge badge-amber">Open</span>{% endif %}</td>
+      <td><span class="badge badge-grey">{{ o.payment_label }}</span></td>
+      <td class="text-right">{{ o.lines.count }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="pagination">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next →</a>{% endif %}
+  </div>
+  {% else %}<p class="text-muted">No internal orders yet.</p>{% endif %}
+</div>
+{% endblock %}

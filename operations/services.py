@@ -22,9 +22,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from operations.models import (
-    AuditEvent, FilamentSpool, InventoryMovement, Location, Material,
-    PrintLog, PrintMaterialUse, Purchase, PurchaseLine, PurchasePayment,
-    ScaleMeasurement, StockItem, UnitChoices,
+    AuditEvent, FilamentSpool, InternalOrder, InternalOrderLine, InventoryMovement,
+    Location, Material, PrintLog, PrintMaterialUse, PrintProduct, ProductionRecipe,
+    ProductVariant, Purchase, PurchaseLine, PurchasePayment, ScaleMeasurement,
+    StockItem, UnitChoices,
 )
 
 ZERO = Decimal('0')
@@ -59,23 +60,25 @@ def record_audit(actor, action, instance, summary='', changes=None):
 # Core ledger primitive
 # =============================================================================
 
-def _current_quantity(spool=None, stock_item=None):
+def _current_quantity(spool=None, stock_item=None, product_variant=None):
     from django.db.models import Sum
     qs = InventoryMovement.objects.all()
     if spool is not None:
         qs = qs.filter(spool=spool)
-    else:
+    elif stock_item is not None:
         qs = qs.filter(stock_item=stock_item)
+    else:
+        qs = qs.filter(product_variant=product_variant)
     return qs.aggregate(t=Sum('quantity'))['t'] or ZERO
 
 
 @transaction.atomic
 def post_movement(*, movement_type, quantity, unit, actor, spool=None, stock_item=None,
-                  reason='', occurred_at=None, purchase_line=None, print_use=None,
-                  reverses=None, idempotency_key=None, allow_negative=False):
+                  product_variant=None, reason='', occurred_at=None, purchase_line=None,
+                  print_use=None, reverses=None, idempotency_key=None, allow_negative=False):
     """Append one movement to the ledger, atomically and safely.
 
-    * Exactly one of ``spool`` / ``stock_item`` must be given.
+    * Exactly one of ``spool`` / ``stock_item`` / ``product_variant`` must be given.
     * ``quantity`` is signed (+ adds, − removes).
     * The target row is locked for the duration so concurrent deductions are
       serialized; a deduction that would make on-hand negative is rejected unless
@@ -83,8 +86,9 @@ def post_movement(*, movement_type, quantity, unit, actor, spool=None, stock_ite
     * If ``idempotency_key`` is given and already used, the existing movement is
       returned unchanged (safe retry) and no new row/audit is written.
     """
-    if (spool is None) == (stock_item is None):
-        raise ValidationError('A movement must target exactly one spool or one stock item.')
+    if sum(t is not None for t in (spool, stock_item, product_variant)) != 1:
+        raise ValidationError(
+            'A movement must target exactly one spool, stock item, or product variant.')
 
     if idempotency_key:
         existing = InventoryMovement.objects.filter(idempotency_key=idempotency_key).first()
@@ -94,24 +98,27 @@ def post_movement(*, movement_type, quantity, unit, actor, spool=None, stock_ite
     # Lock the target so two concurrent deductions can't both pass the check.
     if spool is not None:
         FilamentSpool.objects.select_for_update().get(pk=spool.pk)
-    else:
+    elif stock_item is not None:
         StockItem.objects.select_for_update().get(pk=stock_item.pk)
+    else:
+        ProductVariant.objects.select_for_update().get(pk=product_variant.pk)
 
     quantity = Decimal(quantity)
     if quantity < ZERO and not allow_negative:
-        current = _current_quantity(spool=spool, stock_item=stock_item)
+        current = _current_quantity(spool=spool, stock_item=stock_item, product_variant=product_variant)
         if current + quantity < ZERO:
-            target = spool or stock_item
+            target = spool or stock_item or product_variant
             raise InsufficientStockError(
                 f'Not enough on hand for {target}: have {current} {unit}, '
-                f'tried to remove {abs(quantity)} {unit}. Weigh/recount the item and '
-                f'post a reconciliation adjustment before consuming more.'
+                f'tried to remove {abs(quantity)} {unit}. Recount/reconcile before '
+                f'removing more.'
             )
 
     movement = InventoryMovement.objects.create(
         movement_type=movement_type,
         spool=spool,
         stock_item=stock_item,
+        product_variant=product_variant,
         quantity=quantity,
         unit=unit,
         reason=reason,
@@ -133,7 +140,13 @@ def post_movement(*, movement_type, quantity, unit, actor, spool=None, stock_ite
 @transaction.atomic
 def reverse_movement(movement, actor, reason=''):
     """Correct a prior movement by posting its negation. The original stays
-    immutable; a movement can only be reversed once."""
+    immutable; a movement can only be reversed once.
+
+    The reversal respects the stock-sufficiency check: if the original addition has
+    since been drawn down (e.g. you produced 4 units and already fulfilled 3), the
+    reversal that would drive the balance negative is rejected — reverse the later
+    movement first. This keeps both inventories from being corrupted by a reversal.
+    """
     if movement.movement_type == 'reversal':
         raise ValidationError('A reversal cannot itself be reversed.')
     if movement.reversed_by.exists():
@@ -142,12 +155,12 @@ def reverse_movement(movement, actor, reason=''):
         movement_type='reversal',
         spool=movement.spool,
         stock_item=movement.stock_item,
+        product_variant=movement.product_variant,
         quantity=-movement.quantity,
         unit=movement.unit,
         actor=actor,
         reason=reason or f'Reversal of {movement.get_movement_type_display().lower()}',
         reverses=movement,
-        allow_negative=True,  # reversing a prior receipt may legitimately go to 0
     )
 
 
@@ -301,51 +314,95 @@ def _advance_received(line, delta, movement):
 # Printing (consumption + waste, each counted once; failures still consume)
 # =============================================================================
 
-@transaction.atomic
-def log_print(*, name, printer, purpose, outcome, success_quantity, notes, uses, actor,
-              printed_on=None, submission_token=None):
-    """Record a print and deduct its filament.
+def _historical_timestamp(printed_on):
+    """Noon on the print date, timezone-aware, so back-dated movements sort into
+    the ledger on the day the print actually happened."""
+    from datetime import datetime, time
+    naive = datetime.combine(printed_on, time(12, 0))
+    if timezone.is_naive(naive):
+        return timezone.make_aware(naive, timezone.get_current_timezone())
+    return naive
 
-    ``uses`` is a list of dicts: ``spool``, ``grams_consumed``, ``waste_grams``.
-    For each, a ``consumption`` movement (grams into the part) and a separate
-    ``waste`` movement (purge/support/failure) are posted — each deducts once, so
-    waste is never double-counted. Failed prints still consume material. The whole
-    operation is idempotent on ``submission_token``.
+
+@transaction.atomic
+def log_print(*, name, printer, purpose, outcome, notes, uses, actor,
+              products=None, success_quantity=0, is_historical=False,
+              printed_on=None, submission_token=None):
+    """Record a print, deduct its filament, and add successful finished units.
+
+    ``uses`` — list of dicts per spool: ``spool``, ``grams_consumed``,
+    ``waste_grams``, optional ``basis`` (recipe/slicer/measured) and
+    ``all_inclusive``. When ``all_inclusive`` is true the grams figure already
+    includes supports/purge, so ``waste_grams`` is ignored (never added on top). A
+    ``consumption`` movement (into the part) and a separate ``waste`` movement are
+    posted — each deducts exactly once. Failed prints still consume what is entered
+    (the actual/estimated amount, never the full planned amount).
+
+    ``products`` — list of dicts: ``variant``, ``recipe`` (version snapshot),
+    ``quantity_planned``, ``quantity_success``. Only the SUCCESSFUL units become
+    finished inventory (a ``production_output`` movement). The whole operation is
+    idempotent on ``submission_token``.
     """
     if submission_token:
         existing = PrintLog.objects.filter(submission_token=submission_token).first()
         if existing is not None:
             return existing
 
+    printed_on = printed_on or timezone.localdate()
+    occurred_at = _historical_timestamp(printed_on) if is_historical else None
+
     print_log = PrintLog.objects.create(
-        name=name, printed_on=printed_on or timezone.localdate(), printer=printer,
+        name=name, printed_on=printed_on, printer=printer,
         purpose=purpose, outcome=outcome, success_quantity=success_quantity or 0,
-        notes=notes, submission_token=submission_token or None,
+        is_historical=is_historical, notes=notes, submission_token=submission_token or None,
         created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
     )
-    record_audit(actor, 'create', print_log, summary=f'Print logged ({outcome})')
+    record_audit(actor, 'create', print_log,
+                 summary=f'Print logged ({outcome}{", historical" if is_historical else ""})')
+    base = (submission_token or print_log.pk)
 
+    # --- Filament consumption + waste (each deducted exactly once) ---
     for u in uses:
         grams_consumed = Decimal(u.get('grams_consumed') or 0)
         waste_grams = Decimal(u.get('waste_grams') or 0)
+        all_inclusive = bool(u.get('all_inclusive'))
+        if all_inclusive:
+            waste_grams = ZERO  # grams_consumed already includes supports/purge
         if grams_consumed <= ZERO and waste_grams <= ZERO:
             continue
         pmu = PrintMaterialUse.objects.create(
             print_log=print_log, spool=u['spool'],
             grams_consumed=grams_consumed, waste_grams=waste_grams,
+            basis=u.get('basis') or 'slicer', all_inclusive=all_inclusive,
         )
-        base = (submission_token or print_log.pk)
         if grams_consumed > ZERO:
             post_movement(
                 movement_type='consumption', spool=u['spool'], quantity=-grams_consumed,
                 unit=UnitChoices.GRAM, actor=actor, reason=f'Print: {name}',
-                print_use=pmu, idempotency_key=(f'{base}:{pmu.pk}:c'),
+                print_use=pmu, occurred_at=occurred_at, idempotency_key=(f'{base}:{pmu.pk}:c'),
             )
         if waste_grams > ZERO:
             post_movement(
                 movement_type='waste', spool=u['spool'], quantity=-waste_grams,
                 unit=UnitChoices.GRAM, actor=actor, reason=f'Print waste: {name}',
-                print_use=pmu, idempotency_key=(f'{base}:{pmu.pk}:w'),
+                print_use=pmu, occurred_at=occurred_at, idempotency_key=(f'{base}:{pmu.pk}:w'),
+            )
+
+    # --- Finished-goods output (successful units only) ---
+    for p in (products or []):
+        variant = p['variant']
+        qty_planned = int(p.get('quantity_planned') or 0)
+        qty_success = int(p.get('quantity_success') or 0)
+        pp = PrintProduct.objects.create(
+            print_log=print_log, variant=variant, recipe=p.get('recipe'),
+            quantity_planned=qty_planned, quantity_success=qty_success,
+        )
+        if qty_success > 0:
+            post_movement(
+                movement_type='production_output', product_variant=variant,
+                quantity=Decimal(qty_success), unit=UnitChoices.EACH, actor=actor,
+                reason=f'Produced: {name}', occurred_at=occurred_at,
+                idempotency_key=(f'{base}:prod:{pp.pk}'),
             )
     return print_log
 
@@ -432,3 +489,96 @@ def create_expense_for_purchase(*, purchase, account, category, amount, transact
     payment = link_payment(purchase=purchase, transaction_obj=txn, amount=amount,
                            note='Expense created from purchase', actor=actor)
     return txn, payment
+
+
+# =============================================================================
+# Recipes (versioned — a new version never rewrites past print consumption)
+# =============================================================================
+
+@transaction.atomic
+def create_recipe_version(*, variant, materials, actor, notes=''):
+    """Create a NEW current recipe version for a variant. Previous versions are
+    preserved and marked not-current. ``materials`` is a list of dicts:
+    ``material``, ``grams_per_unit``, ``waste_per_unit``."""
+    from operations.models import RecipeMaterial
+    last = variant.recipes.order_by('-version').first()
+    next_version = (last.version + 1) if last else 1
+    variant.recipes.filter(is_current=True).update(is_current=False)
+    recipe = ProductionRecipe.objects.create(
+        variant=variant, version=next_version, is_current=True, notes=notes,
+        created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
+    )
+    for m in materials:
+        if m.get('material') is None:
+            continue
+        RecipeMaterial.objects.create(
+            recipe=recipe, material=m['material'],
+            grams_per_unit=Decimal(m.get('grams_per_unit') or 0),
+            waste_per_unit=Decimal(m.get('waste_per_unit') or 0),
+        )
+    record_audit(actor, 'create', recipe, summary=f'Recipe v{next_version} created')
+    return recipe
+
+
+# =============================================================================
+# Internal orders (no payment) — fulfillment removes finished goods only
+# =============================================================================
+
+@transaction.atomic
+def create_internal_order(*, purpose, lines, actor, notes='', ordered_on=None):
+    """Create a staff-only internal order (no payment). ``lines`` is a list of
+    dicts: ``variant``, ``quantity``."""
+    order = InternalOrder.objects.create(
+        purpose=purpose, notes=notes, ordered_on=ordered_on or timezone.localdate(),
+        created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
+    )
+    for ln in lines:
+        qty = int(ln.get('quantity') or 0)
+        if ln.get('variant') is None or qty <= 0:
+            continue
+        InternalOrderLine.objects.create(order=order, variant=ln['variant'], quantity=qty)
+    record_audit(actor, 'create', order, summary='Internal order created (no payment)')
+    return order
+
+
+@transaction.atomic
+def fulfill_internal_order(*, order, actor, fulfillment_token=None, occurred_at=None):
+    """Fulfill an internal order: remove finished units from inventory. This NEVER
+    deducts filament. Idempotent on the order's fulfillment token, so a retry can't
+    deduct finished goods twice."""
+    # Lock + re-read the order to serialize concurrent fulfillments.
+    order = InternalOrder.objects.select_for_update().get(pk=order.pk)
+    if order.status == 'fulfilled':
+        return order
+    if order.status == 'cancelled':
+        raise ValidationError('Cannot fulfill a cancelled internal order.')
+
+    token = fulfillment_token or order.fulfillment_token or uuid_hex()
+    for line in order.lines.select_related('variant').all():
+        post_movement(
+            movement_type='fulfillment', product_variant=line.variant,
+            quantity=-Decimal(line.quantity), unit=UnitChoices.EACH, actor=actor,
+            reason=f'Internal order ({order.get_purpose_display()})',
+            occurred_at=occurred_at, idempotency_key=f'{token}:ful:{line.pk}',
+        )
+    order.status = 'fulfilled'
+    order.fulfilled_at = timezone.now()
+    order.fulfillment_token = token
+    order.save(update_fields=['status', 'fulfilled_at', 'fulfillment_token'])
+    record_audit(actor, 'update', order, summary='Internal order fulfilled (finished goods out)')
+    return order
+
+
+@transaction.atomic
+def create_and_fulfill_internal_order(*, purpose, lines, actor, notes='', ordered_on=None,
+                                      occurred_at=None):
+    """Convenience for the historical flow: create an internal order and fulfill it
+    immediately, keeping the order and fulfillment as distinct records."""
+    order = create_internal_order(purpose=purpose, lines=lines, actor=actor, notes=notes,
+                                  ordered_on=ordered_on)
+    return fulfill_internal_order(order=order, actor=actor, occurred_at=occurred_at)
+
+
+def uuid_hex():
+    import uuid
+    return uuid.uuid4().hex

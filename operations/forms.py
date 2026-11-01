@@ -205,16 +205,30 @@ class WeighSpoolForm(StyledForm):
 class PrintLogForm(StyledModelForm):
     class Meta:
         model = __import__('operations').models.PrintLog
-        fields = ['name', 'printed_on', 'printer', 'purpose', 'outcome', 'success_quantity', 'notes']
+        fields = ['name', 'printed_on', 'printer', 'purpose', 'outcome', 'is_historical', 'notes']
         widgets = {
             'printed_on': forms.DateInput(attrs={'type': 'date'}),
             'notes': forms.Textarea(attrs={'rows': 2}),
         }
+        labels = {'is_historical': 'Historical (back-dated reconstruction)'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['printer'].required = False
         self.fields['printer'].queryset = Equipment.objects.filter(equipment_type='printer', status='active')
+
+
+class PrintProductForm(StyledForm):
+    """A product produced by a print (drives finished-goods output)."""
+    variant = forms.ModelChoiceField(queryset=None, required=False, label='Product / variant')
+    quantity_planned = forms.IntegerField(min_value=0, required=False, initial=0, label='Planned')
+    quantity_success = forms.IntegerField(min_value=0, required=False, initial=0, label='Good units')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from operations.models import ProductVariant
+        self.fields['variant'].queryset = ProductVariant.objects.filter(
+            is_active=True, product__is_active=True).select_related('product')
 
 
 class PrintMaterialUseForm(StyledForm):
@@ -223,6 +237,10 @@ class PrintMaterialUseForm(StyledForm):
                                         label='Into part (g)')
     waste_grams = forms.DecimalField(min_value=Decimal('0'), required=False, initial=0,
                                      label='Waste: purge/support (g)')
+    basis = forms.ChoiceField(
+        choices=[('recipe', 'Recipe estimate'), ('slicer', 'Slicer total'), ('measured', 'Measured')],
+        initial='slicer', required=False, label='Source')
+    all_inclusive = forms.BooleanField(required=False, label='Total already includes waste')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -230,3 +248,65 @@ class PrintMaterialUseForm(StyledForm):
 
 
 PrintMaterialUseFormSet = forms.formset_factory(PrintMaterialUseForm, extra=3)
+PrintProductFormSet = forms.formset_factory(PrintProductForm, extra=3)
+
+
+# --------------------------------------------------------------------- products & recipes
+class PhysicalProductForm(StyledModelForm):
+    class Meta:
+        model = __import__('operations').models.PhysicalProduct
+        fields = ['name', 'description', 'design_source', 'file_reference',
+                  'internal_only', 'catalog_eligible']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 2}),
+            'file_reference': forms.Textarea(attrs={'rows': 2}),
+        }
+
+
+class ProductVariantForm(StyledModelForm):
+    class Meta:
+        model = __import__('operations').models.ProductVariant
+        fields = ['name', 'notes']
+
+
+class RecipeMaterialForm(StyledForm):
+    material = forms.ModelChoiceField(
+        queryset=Material.objects.filter(material_type='filament', is_active=True),
+        required=False, label='Filament')
+    grams_per_unit = forms.DecimalField(min_value=Decimal('0'), required=False, initial=0,
+                                        label='Into part /unit (g)')
+    waste_per_unit = forms.DecimalField(min_value=Decimal('0'), required=False, initial=0,
+                                        label='Waste /unit (g)')
+
+
+RecipeMaterialFormSet = forms.formset_factory(RecipeMaterialForm, extra=3)
+
+
+class RecipeForm(StyledForm):
+    notes = forms.CharField(max_length=300, required=False,
+                            help_text='What changed in this version (optional).')
+
+
+# --------------------------------------------------------------------- internal orders
+class InternalOrderForm(StyledModelForm):
+    class Meta:
+        model = __import__('operations').models.InternalOrder
+        fields = ['purpose', 'ordered_on', 'notes']
+        widgets = {
+            'ordered_on': forms.DateInput(attrs={'type': 'date'}),
+            'notes': forms.Textarea(attrs={'rows': 2}),
+        }
+
+
+class InternalOrderLineForm(StyledForm):
+    variant = forms.ModelChoiceField(queryset=None, required=False, label='Product / variant')
+    quantity = forms.IntegerField(min_value=1, required=False, initial=1)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from operations.models import ProductVariant
+        self.fields['variant'].queryset = ProductVariant.objects.filter(
+            is_active=True, product__is_active=True).select_related('product')
+
+
+InternalOrderLineFormSet = forms.formset_factory(InternalOrderLineForm, extra=3)

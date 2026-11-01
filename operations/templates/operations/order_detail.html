@@ -1,0 +1,44 @@
+{% extends 'operations/base.html' %}
+{% block title %}Internal order{% endblock %}
+{% block content %}
+<div class="row-split">
+  <h1>Internal order — {{ order.get_purpose_display }}</h1>
+  <a href="{% url 'operations:order_list' %}" class="btn btn-secondary btn-sm">← Internal orders</a>
+</div>
+<div class="card">
+  <p><strong>Date:</strong> {{ order.ordered_on }} &nbsp;
+     <strong>Status:</strong>
+     {% if order.status == 'fulfilled' %}<span class="badge badge-green">Fulfilled</span>
+     {% elif order.status == 'cancelled' %}<span class="badge badge-grey">Cancelled</span>
+     {% else %}<span class="badge badge-amber">Open</span>{% endif %}
+     &nbsp; <strong>Payment:</strong> <span class="badge badge-grey">{{ order.payment_label }}</span>
+     {% if order.fulfilled_at %}&nbsp; <span class="help">Fulfilled {{ order.fulfilled_at|date:"M j, Y H:i" }}</span>{% endif %}</p>
+  {% if order.notes %}<p class="text-muted">{{ order.notes }}</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Lines</h2>
+  <table>
+    <tr><th>Product / variant</th><th class="text-right">Quantity</th><th class="text-right">Finished on hand</th></tr>
+    {% for row in lines %}
+    <tr><td>{{ row.ln.variant }}</td><td class="text-right">{{ row.ln.quantity }}</td>
+        <td class="text-right">{{ row.on_hand }}</td></tr>
+    {% endfor %}
+  </table>
+
+  {% if order.status == 'open' %}
+  <div class="mt-3">
+    <form method="post" action="{% url 'operations:order_fulfill' order.id %}" class="inline-form"
+          onsubmit="return confirm('Fulfill this order? Finished units will be removed from inventory (no filament deducted).');">
+      {% csrf_token %}
+      <input type="hidden" name="fulfillment_token" value="{{ fulfillment_token }}">
+      <button class="btn btn-primary">Fulfill (remove finished units)</button>
+    </form>
+    <form method="post" action="{% url 'operations:order_cancel' order.id %}" class="inline-form"
+          onsubmit="return confirm('Cancel this order?');">
+      {% csrf_token %}<button class="btn btn-danger">Cancel order</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

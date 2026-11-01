@@ -1,0 +1,53 @@
+{% extends 'operations/base.html' %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<div class="row-split">
+  <h1>{{ product.name }}</h1>
+  <a href="{% url 'operations:product_list' %}" class="btn btn-secondary btn-sm">← Products</a>
+</div>
+<div class="card">
+  <p>{% if product.internal_only %}<span class="badge badge-grey">Internal only</span>{% endif %}
+     {% if product.catalog_eligible %}<span class="badge badge-blue">Catalog-eligible</span>{% endif %}</p>
+  {% if product.description %}<p>{{ product.description }}</p>{% endif %}
+  {% if product.design_source %}<p class="help"><strong>Design source:</strong> {{ product.design_source }}</p>{% endif %}
+  {% if product.file_reference %}<p class="help"><strong>Files:</strong><br>{{ product.file_reference|linebreaksbr }}</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Variants &amp; recipes</h2>
+  {% for row in variants %}
+  <div style="border:1px solid #eee;border-radius:6px;padding:12px;margin-bottom:10px;">
+    <div class="row-split">
+      <strong>{{ row.v.name }}</strong>
+      <span>Finished on hand: <strong>{{ row.on_hand }}</strong>
+        &nbsp; <a href="{% url 'operations:recipe_create' row.v.id %}" class="btn btn-primary btn-sm">
+          {% if row.recipe %}New recipe version{% else %}Add recipe{% endif %}</a></span>
+    </div>
+    {% if row.recipe %}
+      <p class="help mt-2">Current recipe <strong>v{{ row.recipe.version }}</strong>
+        {% if row.recipe.notes %}— {{ row.recipe.notes }}{% endif %}:</p>
+      <table>
+        <tr><th>Filament</th><th class="text-right">Into part /unit</th><th class="text-right">Waste /unit</th><th class="text-right">Total /unit</th></tr>
+        {% for m in row.recipe.materials.all %}
+        <tr><td>{{ m.material }}</td><td class="text-right">{{ m.grams_per_unit }} g</td>
+            <td class="text-right">{{ m.waste_per_unit }} g</td><td class="text-right">{{ m.total_per_unit }} g</td></tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="text-muted mt-2">No recipe yet — add one so prints can prefill expected consumption.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <h3 class="mt-3">Add a variant</h3>
+  <form method="post" action="{% url 'operations:variant_create' product.id %}">
+    {% csrf_token %}
+    <div class="grid">
+      {% for field in variant_form %}
+        <div class="form-group"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-secondary">Add variant</button>
+  </form>
+</div>
+{% endblock %}

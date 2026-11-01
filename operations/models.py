@@ -633,14 +633,16 @@ class InventoryMovement(models.Model):
         ('opening_balance', 'Opening balance'),
         ('consumption', 'Consumption (print)'),
         ('waste', 'Waste (purge / support / failure)'),
+        ('production_output', 'Production output (finished units)'),
+        ('fulfillment', 'Fulfillment (finished units out)'),
         ('return', 'Return'),
         ('adjustment', 'Adjustment / reconciliation'),
         ('reversal', 'Reversal of a prior movement'),
     ]
 
     # Movement types whose sign must be negative (deductions) vs positive (additions).
-    DEDUCTION_TYPES = {'consumption', 'waste'}
-    ADDITION_TYPES = {'purchase_receipt', 'opening_balance', 'return'}
+    DEDUCTION_TYPES = {'consumption', 'waste', 'fulfillment'}
+    ADDITION_TYPES = {'purchase_receipt', 'opening_balance', 'return', 'production_output'}
     # 'adjustment' and 'reversal' may be either sign.
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -651,6 +653,11 @@ class InventoryMovement(models.Model):
     )
     stock_item = models.ForeignKey(
         StockItem, on_delete=models.PROTECT, null=True, blank=True, related_name='movements',
+    )
+    # Finished-goods inventory target (units of a product variant). Produced by
+    # prints (production_output) and removed by internal-order fulfillment.
+    product_variant = models.ForeignKey(
+        'ProductVariant', on_delete=models.PROTECT, null=True, blank=True, related_name='movements',
     )
 
     quantity = models.DecimalField(
@@ -688,23 +695,27 @@ class InventoryMovement(models.Model):
             models.Index(fields=['stock_item', 'created_at'], name='ops_mv_stock_idx'),
         ]
         constraints = [
-            # Exactly one target.
+            # Exactly one target of the three (spool / stock item / finished good).
             models.CheckConstraint(
                 name='movement_exactly_one_target',
                 check=(
-                    models.Q(spool__isnull=False, stock_item__isnull=True)
-                    | models.Q(spool__isnull=True, stock_item__isnull=False)
+                    models.Q(spool__isnull=False, stock_item__isnull=True, product_variant__isnull=True)
+                    | models.Q(spool__isnull=True, stock_item__isnull=False, product_variant__isnull=True)
+                    | models.Q(spool__isnull=True, stock_item__isnull=True, product_variant__isnull=False)
                 ),
             ),
         ]
 
     def __str__(self):
-        target = self.spool if self.spool_id else self.stock_item
-        return f'{self.get_movement_type_display()} {self.quantity} {self.unit} → {target}'
+        return f'{self.get_movement_type_display()} {self.quantity} {self.unit} → {self.target}'
 
     @property
     def target(self):
-        return self.spool if self.spool_id else self.stock_item
+        if self.spool_id:
+            return self.spool
+        if self.stock_item_id:
+            return self.stock_item
+        return self.product_variant
 
     @property
     def is_reversed(self):
@@ -749,7 +760,12 @@ class PrintLog(models.Model):
     outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES, default='success')
     success_quantity = models.IntegerField(
         default=0, validators=[MinValueValidator(0)],
-        help_text='Number of good units produced (for reference; finished-goods stock is deferred).',
+        help_text='Legacy/simple good-unit count. When product lines are used, their '
+                  'successful quantities drive finished-goods stock instead.',
+    )
+    is_historical = models.BooleanField(
+        default=False,
+        help_text='Recorded after the fact while reconstructing history (back-dated).',
     )
     notes = models.TextField(blank=True, default='')
     # Idempotency for the whole print submission.
@@ -781,16 +797,34 @@ class PrintLog(models.Model):
 
 
 class PrintMaterialUse(models.Model):
-    """One spool's contribution to one print. ``grams_consumed`` is filament that
-    went into the part(s); ``waste_grams`` is purge/support/failure waste. They are
-    recorded separately and each deducts exactly once, so waste is never counted
-    twice."""
+    """One spool's contribution to one print.
+
+    ``grams_consumed`` is filament that went into the part(s); ``waste_grams`` is
+    purge/support/failure waste. They are recorded separately and each deducts
+    exactly once, so waste is never counted twice.
+
+    ``basis`` labels where the numbers came from (recipe ESTIMATE vs SLICER total
+    vs MEASURED). ``all_inclusive`` means ``grams_consumed`` ALREADY includes
+    supports/purge — when true, ``waste_grams`` is forced to 0 so waste is never
+    added on top of an all-inclusive figure.
+    """
+
+    BASIS_CHOICES = [
+        ('recipe', 'Recipe estimate'),
+        ('slicer', 'Slicer total'),
+        ('measured', 'Measured'),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     print_log = models.ForeignKey(PrintLog, on_delete=models.CASCADE, related_name='material_uses')
     spool = models.ForeignKey(FilamentSpool, on_delete=models.PROTECT, related_name='print_uses')
     grams_consumed = models.DecimalField(default=ZERO, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)])
     waste_grams = models.DecimalField(default=ZERO, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)])
+    basis = models.CharField(max_length=10, choices=BASIS_CHOICES, default='slicer')
+    all_inclusive = models.BooleanField(
+        default=False,
+        help_text='The grams figure already includes supports/purge; do not add waste again.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -833,3 +867,239 @@ class ScaleMeasurement(models.Model):
 
     def __str__(self):
         return f'{self.spool.spool_uid}: {self.net_g}g net @ {self.measured_at:%Y-%m-%d}'
+
+
+# =============================================================================
+# Physical products, variants, and versioned production recipes
+# =============================================================================
+
+class PhysicalProduct(models.Model):
+    """A distinct printed design — separate from Beacon's software-download
+    ``products.Product``. Includes internal-only items (bins, swatches, printer
+    accessories, office items) and things that may later be sold publicly."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=220, unique=True, blank=True)
+    description = models.TextField(blank=True, default='')
+    design_source = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text='e.g. self-designed, a model site, or a URL.')
+    file_reference = models.TextField(
+        blank=True, default='',
+        help_text='Design/slicer file + version references (one per line).')
+    internal_only = models.BooleanField(
+        default=True, help_text='Internal use only (not for the future public catalog).')
+    catalog_eligible = models.BooleanField(
+        default=False, help_text='Eligible for the future public catalog.')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='operations_products')
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Physical product'
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base = slugify(self.name)[:200] or 'product'
+            slug = base
+            i = 2
+            while PhysicalProduct.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+                slug = f'{base}-{i}'
+                i += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    @property
+    def total_on_hand(self):
+        return sum((v.on_hand for v in self.variants.all()), 0)
+
+
+class ProductVariant(models.Model):
+    """A printable/stockable variant of a product (size / material / print profile
+    that changes consumption). Every product has at least one ('Default')."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(PhysicalProduct, on_delete=models.CASCADE, related_name='variants')
+    name = models.CharField(max_length=120, default='Default')
+    notes = models.CharField(max_length=300, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['product__name', 'name']
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'name'], name='unique_variant_per_product'),
+        ]
+
+    def __str__(self):
+        if self.name and self.name != 'Default':
+            return f'{self.product.name} — {self.name}'
+        return self.product.name
+
+    @property
+    def on_hand(self):
+        """Finished units on hand = Σ(finished-goods movements for this variant)."""
+        total = self.movements.aggregate(t=Sum('quantity'))['t']
+        return int(total) if total is not None else 0
+
+    @property
+    def current_recipe(self):
+        return self.recipes.filter(is_current=True).order_by('-version').first()
+
+
+class ProductionRecipe(models.Model):
+    """A versioned bill of expected filament usage for a variant. A new version is
+    a new row (old versions are preserved), so editing a recipe never rewrites the
+    consumption of prints that referenced an earlier version."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='recipes')
+    version = models.PositiveIntegerField(default=1)
+    is_current = models.BooleanField(default=True)
+    notes = models.CharField(max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='operations_recipes')
+
+    class Meta:
+        ordering = ['variant', '-version']
+        constraints = [
+            models.UniqueConstraint(fields=['variant', 'version'], name='unique_recipe_version'),
+        ]
+
+    def __str__(self):
+        return f'{self.variant} recipe v{self.version}'
+
+    def expected_for(self, quantity):
+        """Per-material expected usage for ``quantity`` units.
+
+        Returns a list of dicts: material, grams_consumed, waste_grams. Waste here
+        is the per-unit component only; shared batch purge/support overhead is added
+        once at print time (it does not scale with quantity)."""
+        qty = Decimal(quantity)
+        rows = []
+        for line in self.materials.select_related('material').all():
+            rows.append({
+                'material': line.material,
+                'grams_consumed': line.grams_per_unit * qty,
+                'waste_grams': line.waste_per_unit * qty,
+            })
+        return rows
+
+
+class RecipeMaterial(models.Model):
+    """Expected per-unit filament usage for one material/color in a recipe."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipe = models.ForeignKey(ProductionRecipe, on_delete=models.CASCADE, related_name='materials')
+    material = models.ForeignKey(
+        Material, on_delete=models.PROTECT, related_name='recipe_lines',
+        limit_choices_to={'material_type': 'filament'})
+    grams_per_unit = models.DecimalField(
+        default=ZERO, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
+        help_text='Filament into the part per unit (g).')
+    waste_per_unit = models.DecimalField(
+        default=ZERO, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
+        help_text='Per-unit supports/purge that scales with quantity (g). Shared '
+                  'batch overhead is added once at print time, not here.')
+
+    class Meta:
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(fields=['recipe', 'material'], name='unique_recipe_material'),
+        ]
+
+    def __str__(self):
+        return f'{self.material}: {self.grams_per_unit}g (+{self.waste_per_unit}g waste) /unit'
+
+    @property
+    def total_per_unit(self):
+        return self.grams_per_unit + self.waste_per_unit
+
+
+class PrintProduct(models.Model):
+    """A product produced by a print. Snapshots the recipe VERSION used so later
+    recipe edits never change this print's record. Successful units feed finished
+    inventory (a ``production_output`` movement)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    print_log = models.ForeignKey(PrintLog, on_delete=models.CASCADE, related_name='products')
+    variant = models.ForeignKey(ProductVariant, on_delete=models.PROTECT, related_name='print_products')
+    recipe = models.ForeignKey(
+        ProductionRecipe, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='print_products', help_text='Recipe version used (snapshot).')
+    quantity_planned = models.PositiveIntegerField(default=0)
+    quantity_success = models.PositiveIntegerField(
+        default=0, help_text='Good units produced — these are added to finished inventory.')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.variant} ×{self.quantity_success}/{self.quantity_planned}'
+
+
+# =============================================================================
+# Internal orders (staff-only, no payment) — remove finished goods, not filament
+# =============================================================================
+
+class InternalOrder(models.Model):
+    """A staff-only internal order with NO payment. Fulfilling it removes finished
+    units from inventory; it never deducts filament. Kept entirely separate from
+    any (future) customer sales/revenue."""
+
+    PURPOSE_CHOICES = [
+        ('personal', 'Personal use'),
+        ('office', 'Office / print-room setup'),
+        ('sample', 'Sample / display'),
+        ('gift', 'Gift / promotional'),
+    ]
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('fulfilled', 'Fulfilled'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    purpose = models.CharField(max_length=12, choices=PURPOSE_CHOICES, default='personal')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='open', db_index=True)
+    notes = models.TextField(blank=True, default='')
+    ordered_on = models.DateField(default=timezone.localdate)
+    fulfilled_at = models.DateTimeField(null=True, blank=True)
+    # Idempotency for fulfillment (a double-click can't deduct finished goods twice).
+    fulfillment_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='operations_internal_orders')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Internal order ({self.get_purpose_display()}, {self.get_status_display()})'
+
+    @property
+    def payment_label(self):
+        return 'No payment required'
+
+
+class InternalOrderLine(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(InternalOrder, on_delete=models.CASCADE, related_name='lines')
+    variant = models.ForeignKey(ProductVariant, on_delete=models.PROTECT, related_name='internal_order_lines')
+    quantity = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.variant} ×{self.quantity}'

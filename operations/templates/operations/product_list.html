@@ -1,0 +1,22 @@
+{% extends 'operations/base.html' %}
+{% block title %}Products{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Products</h1><a href="{% url 'operations:product_create' %}" class="btn btn-primary">New product</a></div>
+<div class="card">
+  <p class="help mb-2">Physical printed designs (separate from Beacon's software downloads). Includes internal-only items.</p>
+  {% if rows %}
+  <table>
+    <tr><th>Product</th><th>Use</th><th class="text-right">Variants</th><th class="text-right">Finished on hand</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="{% url 'operations:product_detail' r.p.id %}">{{ r.p.name }}</a></td>
+      <td>{% if r.p.internal_only %}<span class="badge badge-grey">Internal only</span>{% endif %}
+          {% if r.p.catalog_eligible %}<span class="badge badge-blue">Catalog-eligible</span>{% endif %}</td>
+      <td class="text-right">{{ r.variants }}</td>
+      <td class="text-right">{{ r.on_hand }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No products yet. Create one, then add a print recipe.</p>{% endif %}
+</div>
+{% endblock %}

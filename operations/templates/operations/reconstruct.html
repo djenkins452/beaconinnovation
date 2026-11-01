@@ -1,0 +1,32 @@
+{% extends 'operations/base.html' %}
+{% block title %}Reconstruct history{% endblock %}
+{% block content %}
+<h1>Reconstruct your first days</h1>
+<div class="alert alert-info">This is a guided order of operations — it loads no data on its own. Enter your real records;
+  anything unknown, mark clearly in the notes as an estimate.</div>
+
+<div class="card">
+  <h2>Order of operations</h2>
+  <ol style="margin-left:18px;line-height:2;">
+    <li><strong>Create your products</strong> (one per distinct design, including internal items like bins/swatches),
+        then add a <strong>print recipe</strong> per variant with expected grams + waste per unit.
+        <a href="{% url 'operations:product_create' %}">New product →</a></li>
+    <li><strong>Enter each spool at its FULL 1,000 g start</strong> (not today's remaining weight). Use
+        <a href="{% url 'operations:opening_spool' %}">Opening → spool</a> and enter 1000 g; later prints bring it down.
+        <br><span class="help">An unopened refill loaded onto a reusable spool is just material you already own — don't
+        record it as a second purchase.</span></li>
+    <li><strong>Log each historical print in date order</strong>, oldest first. On the print form tick
+        <em>Historical (back-dated)</em> and set the real date. Select the products + good units, the actual spools,
+        and the filament used (recipe estimate, slicer total, or measured — labelled). Failed/cancelled prints:
+        enter what was actually used, not the full plan. <a href="{% url 'operations:print_create' %}">Log a print →</a></li>
+    <li><strong>For items already in your room</strong>, tick <em>Immediately fulfill the good units as an internal
+        order</em> on the print form. That records the production and a separate internal order + fulfillment in one
+        step — finished units go in and straight back out, filament is deducted once.</li>
+    <li><strong>Check the result:</strong> each spool's <a href="{% url 'operations:spool_list' %}">remaining grams</a>
+        = 1000 + adjustments − recorded consumption; <a href="{% url 'operations:finished_goods' %}">finished goods</a>
+        reflect what you kept; the <a href="{% url 'operations:movement_list' %}">history</a> shows every step, in order.</li>
+  </ol>
+  <p class="help">Everything here is immutable + idempotent: a double submit won't double-count, and a mistake is
+    fixed by reversing the movement (the original is preserved), never by editing history.</p>
+</div>
+{% endblock %}

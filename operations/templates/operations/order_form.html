@@ -1,0 +1,29 @@
+{% extends 'operations/base.html' %}
+{% block title %}New internal order{% endblock %}
+{% block content %}
+<h1>New internal order</h1>
+<div class="alert alert-info">Staff-only, <strong>no payment required</strong>. This records what you're taking for
+  internal use. Fulfilling it later removes the finished units from inventory (never filament).</div>
+<form method="post">
+  {% csrf_token %}
+  <div class="card" style="max-width:720px;">
+    {% for field in form %}
+      <div class="form-group"><label>{{ field.label }}</label>{{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2>Products</h2>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}<div class="alert alert-error">{{ formset.non_form_errors }}</div>{% endif %}
+    <table>
+      <tr><th>Product / variant</th><th>Quantity</th></tr>
+      {% for f in formset %}
+      <tr><td>{{ f.variant }}{{ f.variant.errors }}</td><td>{{ f.quantity }}{{ f.quantity.errors }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <button type="submit" class="btn btn-primary">Create order</button>
+  <a href="{% url 'operations:order_list' %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

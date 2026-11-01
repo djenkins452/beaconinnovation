@@ -1,0 +1,19 @@
+{% extends 'operations/base.html' %}
+{% block title %}Finished goods{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Finished goods</h1>
+  <a href="{% if nonzero %}?{% else %}?nonzero=1{% endif %}" class="btn btn-secondary btn-sm">
+    {% if nonzero %}Show all{% else %}Only in stock{% endif %}</a></div>
+<div class="card">
+  <p class="help mb-2">Finished units = Σ(production output − fulfillment). Prints add good units; internal orders remove them.</p>
+  {% if rows %}
+  <table>
+    <tr><th>Product / variant</th><th class="text-right">On hand</th></tr>
+    {% for r in rows %}
+    <tr><td><a href="{% url 'operations:product_detail' r.v.product_id %}">{{ r.v }}</a></td>
+        <td class="text-right">{{ r.on_hand }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No finished goods yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -72,11 +72,14 @@
                 <a href="{% url 'operations:dashboard' %}" {% if active_nav == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
                 <a href="{% url 'operations:purchase_list' %}" {% if active_nav == 'purchases' %}class="active"{% endif %}>Purchases</a>
                 <a href="{% url 'operations:spool_list' %}" {% if active_nav == 'spools' %}class="active"{% endif %}>Spools</a>
-                <a href="{% url 'operations:stock_list' %}" {% if active_nav == 'stock' %}class="active"{% endif %}>Stock</a>
                 <a href="{% url 'operations:material_list' %}" {% if active_nav == 'materials' %}class="active"{% endif %}>Materials</a>
+                <a href="{% url 'operations:product_list' %}" {% if active_nav == 'products' %}class="active"{% endif %}>Products</a>
                 <a href="{% url 'operations:print_list' %}" {% if active_nav == 'prints' %}class="active"{% endif %}>Prints</a>
+                <a href="{% url 'operations:finished_goods' %}" {% if active_nav == 'finished' %}class="active"{% endif %}>Finished</a>
+                <a href="{% url 'operations:order_list' %}" {% if active_nav == 'orders' %}class="active"{% endif %}>Internal orders</a>
                 <a href="{% url 'operations:movement_list' %}" {% if active_nav == 'history' %}class="active"{% endif %}>History</a>
                 <span class="nav-divider"></span>
+                <a href="{% url 'operations:stock_list' %}" {% if active_nav == 'stock' %}class="active"{% endif %}>Stock</a>
                 <a href="{% url 'operations:opening_index' %}" {% if active_nav == 'opening' %}class="active"{% endif %}>Opening</a>
                 <a href="{% url 'operations:equipment_list' %}" {% if active_nav == 'equipment' %}class="active"{% endif %}>Equipment</a>
                 <a href="{% url 'operations:supplier_list' %}" {% if active_nav == 'suppliers' %}class="active"{% endif %}>Suppliers</a>

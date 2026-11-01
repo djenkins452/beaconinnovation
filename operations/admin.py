@@ -8,9 +8,11 @@ reversing/adjusting movements, never an admin edit).
 from django.contrib import admin
 
 from operations.models import (
-    AuditEvent, Equipment, FilamentSpool, InventoryMovement, Location, Material,
-    PrintLog, PrintMaterialUse, Purchase, PurchaseDocument, PurchaseLine,
-    PurchasePayment, ScaleMeasurement, StockItem, Supplier,
+    AuditEvent, Equipment, FilamentSpool, InternalOrder, InternalOrderLine,
+    InventoryMovement, Location, Material, PhysicalProduct, PrintLog,
+    PrintMaterialUse, PrintProduct, ProductionRecipe, ProductVariant, Purchase,
+    PurchaseDocument, PurchaseLine, PurchasePayment, RecipeMaterial,
+    ScaleMeasurement, StockItem, Supplier,
 )
 
 
@@ -80,11 +82,54 @@ class PrintMaterialUseInline(admin.TabularInline):
     extra = 0
 
 
+class PrintProductInline(admin.TabularInline):
+    model = PrintProduct
+    extra = 0
+
+
 @admin.register(PrintLog)
 class PrintLogAdmin(admin.ModelAdmin):
-    list_display = ('name', 'printed_on', 'printer', 'purpose', 'outcome')
-    list_filter = ('purpose', 'outcome')
-    inlines = [PrintMaterialUseInline]
+    list_display = ('name', 'printed_on', 'printer', 'purpose', 'outcome', 'is_historical')
+    list_filter = ('purpose', 'outcome', 'is_historical')
+    inlines = [PrintProductInline, PrintMaterialUseInline]
+
+
+class ProductVariantInline(admin.TabularInline):
+    model = ProductVariant
+    extra = 0
+
+
+@admin.register(PhysicalProduct)
+class PhysicalProductAdmin(admin.ModelAdmin):
+    list_display = ('name', 'internal_only', 'catalog_eligible', 'is_active')
+    list_filter = ('internal_only', 'catalog_eligible', 'is_active')
+    search_fields = ('name', 'design_source')
+    prepopulated_fields = {'slug': ('name',)}
+    inlines = [ProductVariantInline]
+
+
+class RecipeMaterialInline(admin.TabularInline):
+    model = RecipeMaterial
+    extra = 0
+
+
+@admin.register(ProductionRecipe)
+class ProductionRecipeAdmin(admin.ModelAdmin):
+    list_display = ('variant', 'version', 'is_current', 'created_at')
+    list_filter = ('is_current',)
+    inlines = [RecipeMaterialInline]
+
+
+class InternalOrderLineInline(admin.TabularInline):
+    model = InternalOrderLine
+    extra = 0
+
+
+@admin.register(InternalOrder)
+class InternalOrderAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'purpose', 'status', 'ordered_on', 'fulfilled_at')
+    list_filter = ('purpose', 'status')
+    inlines = [InternalOrderLineInline]
 
 
 @admin.register(ScaleMeasurement)

@@ -124,3 +124,82 @@ unchanged (operations lives in Beacon's `default` DB; aegis stays dormant).
 - **Reorder thresholds** are a simple on-hand comparison (no net-of-incoming).
 - Admin registrations exist for convenience; the ledger and audit log are
   **read-only** in admin to preserve immutability.
+
+---
+
+# Phase 1b — products, recipes, production, internal orders, finished goods
+
+Extends the module to the clarified workflow: each distinct printed design is a
+**product**; recipes know expected usage; prints deduct consumption and add
+successful units to **finished-goods inventory**; **internal orders** (no payment)
+remove finished units; and history can be **reconstructed** chronologically.
+
+## New concepts
+
+- **PhysicalProduct → ProductVariant** — a distinct printed design (separate from
+  `products.Product`, the software-download model), including internal-only items
+  (bins, swatches, printer accessories). `internal_only` vs `catalog_eligible`
+  flags keep it compatible with a future public catalog without building one.
+  Every product gets a `Default` variant; variants cover size/material/profile
+  differences that change consumption.
+- **ProductionRecipe (versioned) + RecipeMaterial** — expected filament per unit
+  by material/color: `grams_per_unit` (into part) + `waste_per_unit` (per-unit
+  supports). Saving edits a **new version**; old versions are preserved and a
+  print snapshots the version it used (`PrintProduct.recipe`), so recipe changes
+  never rewrite past consumption. Waste does **not** auto-scale: per-unit waste is
+  in the recipe; shared batch purge/support is entered once at print time.
+- **Finished-goods inventory** — the movement ledger gained a third target
+  (`InventoryMovement.product_variant`) and two types: `production_output` (+ units,
+  from a print's successful quantities) and `fulfillment` (− units, from an
+  internal order). `ProductVariant.on_hand = Σ(its movements)`.
+- **InternalOrder → InternalOrderLine** — staff-only, **no payment** (shows "No
+  payment required", never "Paid"), kept entirely separate from any customer
+  sales/revenue. Fulfilling removes finished units — it **never** deducts filament.
+  Not reachable by any public/email-based path; it is an explicit back-office
+  screen behind the staff gate.
+
+## Production (extends the existing print log — one workflow, not two)
+
+The print form now also selects **products + planned/good quantities** and the
+actual spools. A **Suggest filament from recipe** button prefills expected grams
+from the selected products' current recipes. Each spool row labels its **source**
+(recipe estimate / slicer total / measured) and has an **all-inclusive** flag: when
+ticked, the grams figure already includes supports/purge and waste is **not added
+again**. Consumption and waste each post exactly one movement. **Failed/cancelled**
+prints deduct what you enter (actual/estimate), never the full plan. Only
+**successful** units become finished inventory. Idempotency, concurrency locking,
+audit, and reversal rules are unchanged; a correction is still a reversing movement
+— and a reversal now **respects stock sufficiency**, so it cannot drive either
+inventory negative (reverse the later movement first).
+
+## Reconstructing the first days
+
+A **Reconstruct history** guide (`/operations/prints/reconstruct/`) lays out the
+order of operations. Spools are entered at their **full 1,000 g** start (not today's
+remaining weight); each historical print is logged **back-dated** (the
+`is_historical` flag sets the movements' `occurred_at` to the print date, so the
+ledger is chronological). For items already in use, the print form can **also fulfil
+the good units as an internal order in one step** — recording the production and the
+fulfilment as **separate** records, with filament deducted once. Remaining filament
+= 1,000 g + later adjustments − recorded consumption. Nothing is auto-imported; the
+workflow is built for you to enter real records (unknowns flagged in notes). An
+unopened refill loaded onto a reusable spool is just material you already own — it
+is not recorded as a second purchase.
+
+## Validation (synthetic only; production kept clean)
+
+`operations/tests/` now has 34 tests (all pass on PostgreSQL). The Phase 1b set
+walks the full sequence: start a spool at 1,000 g → print a batch (product material
++ shared batch waste) → confirm remaining grams → add successful finished units →
+create + fulfil a no-payment internal order → confirm fulfilment changes finished
+inventory with **no** filament deduction → reverse/correct without corrupting either
+inventory → duplicate submissions don't duplicate movements. Plus: recipe-version
+history preserves past prints, all-inclusive totals aren't double-counted, failed
+prints consume actual (not planned) and produce nothing, and the print/order views
+post correctly through their formsets.
+
+## Still deferred (unchanged boundaries)
+
+No public storefront, customer checkout, payment integration, printer connection,
+QR, or full costing engine. Finance behaviour, private storage, and aegis isolation
+are untouched. No reservations.

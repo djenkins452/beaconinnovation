@@ -13,22 +13,23 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from finance.forms import validate_receipt_file
 from operations import services
 from operations.forms import (
-    CreateExpenseForm, EquipmentForm, LinkPaymentForm, LocationForm, MaterialForm,
-    OpeningSpoolForm, OpeningStockForm, PrintLogForm, PrintMaterialUseFormSet,
-    PurchaseForm, PurchaseLineForm, ReceiveEquipmentForm, ReceiveFilamentForm,
-    ReceiveStockForm, SupplierForm, WeighSpoolForm,
+    CreateExpenseForm, EquipmentForm, InternalOrderForm, InternalOrderLineFormSet,
+    LinkPaymentForm, LocationForm, MaterialForm, OpeningSpoolForm, OpeningStockForm,
+    PhysicalProductForm, PrintLogForm, PrintMaterialUseFormSet, PrintProductFormSet,
+    ProductVariantForm, PurchaseForm, PurchaseLineForm, RecipeForm, RecipeMaterialFormSet,
+    ReceiveEquipmentForm, ReceiveFilamentForm, ReceiveStockForm, SupplierForm, WeighSpoolForm,
 )
 from operations.models import (
-    AuditEvent, Equipment, FilamentSpool, InventoryMovement, Location, Material,
-    PrintLog, Purchase, PurchaseDocument, PurchaseLine, ScaleMeasurement,
-    StockItem, Supplier,
+    AuditEvent, Equipment, FilamentSpool, InternalOrder, InventoryMovement, Location,
+    Material, PhysicalProduct, PrintLog, ProductionRecipe, ProductVariant, Purchase,
+    PurchaseDocument, PurchaseLine, ScaleMeasurement, StockItem, Supplier,
 )
 
 
@@ -533,25 +534,49 @@ def print_create(request):
     if request.method == 'POST':
         form = PrintLogForm(request.POST)
         formset = PrintMaterialUseFormSet(request.POST, prefix='use')
+        pformset = PrintProductFormSet(request.POST, prefix='prod')
         token = request.POST.get('submission_token') or None
-        if form.is_valid() and formset.is_valid():
+        fulfill_internal = request.POST.get('fulfill_internal') == 'on'
+        fulfill_purpose = request.POST.get('fulfill_purpose') or 'personal'
+        if form.is_valid() and formset.is_valid() and pformset.is_valid():
             uses = []
             for f in formset:
                 spool = f.cleaned_data.get('spool')
                 gc = f.cleaned_data.get('grams_consumed') or 0
                 wg = f.cleaned_data.get('waste_grams') or 0
                 if spool and (gc or wg):
-                    uses.append({'spool': spool, 'grams_consumed': gc, 'waste_grams': wg})
+                    uses.append({'spool': spool, 'grams_consumed': gc, 'waste_grams': wg,
+                                 'basis': f.cleaned_data.get('basis'),
+                                 'all_inclusive': f.cleaned_data.get('all_inclusive')})
+            products = []
+            for pf in pformset:
+                variant = pf.cleaned_data.get('variant')
+                qp = pf.cleaned_data.get('quantity_planned') or 0
+                qs = pf.cleaned_data.get('quantity_success') or 0
+                if variant and (qp or qs):
+                    products.append({'variant': variant, 'recipe': variant.current_recipe,
+                                     'quantity_planned': qp, 'quantity_success': qs})
             try:
                 d = form.cleaned_data
                 print_log = services.log_print(
                     name=d['name'], printer=d['printer'], purpose=d['purpose'],
-                    outcome=d['outcome'], success_quantity=d['success_quantity'],
+                    outcome=d['outcome'], is_historical=d['is_historical'],
                     notes=d['notes'], printed_on=d['printed_on'], uses=uses,
-                    actor=request.user, submission_token=token)
-                messages.success(request, f'Print "{print_log.name}" logged; '
-                                          f'{print_log.total_filament_g} g of filament deducted '
-                                          f'(incl. {print_log.total_waste_g} g waste).')
+                    products=products, actor=request.user, submission_token=token)
+                msg = (f'Print "{print_log.name}" logged; {print_log.total_filament_g} g '
+                       f'deducted (incl. {print_log.total_waste_g} g waste).')
+                # Optional: immediately fulfill the successful units as an internal order.
+                if fulfill_internal:
+                    lines = [{'variant': p['variant'], 'quantity': p['quantity_success']}
+                             for p in products if p['quantity_success'] > 0]
+                    if lines:
+                        occurred = services._historical_timestamp(d['printed_on']) if d['is_historical'] else None
+                        order = services.create_and_fulfill_internal_order(
+                            purpose=fulfill_purpose, lines=lines, actor=request.user,
+                            notes=f'Auto from print: {print_log.name}',
+                            ordered_on=d['printed_on'], occurred_at=occurred)
+                        msg += f' Internal order fulfilled (no payment) — finished units removed.'
+                messages.success(request, msg)
                 return redirect('operations:print_detail', print_id=print_log.id)
             except ValidationError as e:
                 messages.error(request, '; '.join(e.messages))
@@ -560,9 +585,11 @@ def print_create(request):
     else:
         form = PrintLogForm()
         formset = PrintMaterialUseFormSet(prefix='use')
+        pformset = PrintProductFormSet(prefix='prod')
     return render(request, 'operations/print_form.html',
                   {'active_nav': 'prints', 'form': form, 'formset': formset,
-                   'submission_token': uuid.uuid4().hex})
+                   'pformset': pformset, 'submission_token': uuid.uuid4().hex,
+                   'purpose_choices': InternalOrder.PURPOSE_CHOICES})
 
 
 @staff_required
@@ -570,7 +597,27 @@ def print_detail(request, print_id):
     print_log = get_object_or_404(PrintLog.objects.select_related('printer'), pk=print_id)
     return render(request, 'operations/print_detail.html',
                   {'active_nav': 'prints', 'print_log': print_log,
-                   'uses': print_log.material_uses.select_related('spool').all()})
+                   'uses': print_log.material_uses.select_related('spool').all(),
+                   'products': print_log.products.select_related('variant', 'variant__product').all()})
+
+
+@staff_required
+def recipe_expected(request):
+    """JSON: expected per-material consumption for a variant + quantity (recipe
+    prefill for the print form). Returns [] when the variant has no current recipe."""
+    variant_id = request.GET.get('variant')
+    try:
+        qty = int(request.GET.get('qty') or 1)
+    except ValueError:
+        qty = 1
+    rows = []
+    variant = ProductVariant.objects.filter(pk=variant_id).first() if variant_id else None
+    if variant and variant.current_recipe:
+        for r in variant.current_recipe.expected_for(qty):
+            rows.append({'material': str(r['material']),
+                         'grams_consumed': str(r['grams_consumed']),
+                         'waste_grams': str(r['waste_grams'])})
+    return JsonResponse({'rows': rows})
 
 
 # =============================================================================
@@ -579,8 +626,9 @@ def print_detail(request, print_id):
 
 @staff_required
 def movement_list(request):
-    movements = InventoryMovement.objects.select_related('spool', 'spool__material', 'stock_item',
-                                                         'stock_item__material', 'actor', 'reverses').all()
+    movements = InventoryMovement.objects.select_related(
+        'spool', 'spool__material', 'stock_item', 'stock_item__material',
+        'product_variant', 'product_variant__product', 'actor', 'reverses').all()
     mtype = request.GET.get('type', '')
     if mtype:
         movements = movements.filter(movement_type=mtype)
@@ -607,3 +655,199 @@ def movement_reverse(request, movement_id):
     except ValidationError as e:
         messages.error(request, '; '.join(e.messages))
     return redirect('operations:movement_list')
+
+
+# =============================================================================
+# Physical products, variants, recipes
+# =============================================================================
+
+@staff_required
+def product_list(request):
+    products = PhysicalProduct.objects.filter(is_active=True).prefetch_related('variants')
+    rows = [{'p': p, 'on_hand': p.total_on_hand, 'variants': p.variants.count()} for p in products]
+    return render(request, 'operations/product_list.html', {'active_nav': 'products', 'rows': rows})
+
+
+@staff_required
+def product_create(request):
+    form = PhysicalProductForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        product = form.save(commit=False)
+        product.created_by = request.user
+        product.save()
+        # Every product starts with a Default variant so it is printable at once.
+        variant = ProductVariant.objects.create(product=product, name='Default')
+        services.record_audit(request.user, 'create', product, summary='Physical product created')
+        messages.success(request, f'Product "{product.name}" created with a Default variant. '
+                                  f'Add a print recipe next.')
+        return redirect('operations:product_detail', product_id=product.id)
+    return render(request, 'operations/generic_form.html',
+                  {'active_nav': 'products', 'form': form, 'title': 'New physical product',
+                   'intro': 'A distinct printed design (including internal-only items like bins, '
+                            'swatches, printer accessories).',
+                   'cancel_url': reverse('operations:product_list')})
+
+
+@staff_required
+def product_detail(request, product_id):
+    product = get_object_or_404(PhysicalProduct.objects.prefetch_related('variants'), pk=product_id)
+    variants = []
+    for v in product.variants.all():
+        variants.append({'v': v, 'on_hand': v.on_hand, 'recipe': v.current_recipe})
+    return render(request, 'operations/product_detail.html',
+                  {'active_nav': 'products', 'product': product, 'variants': variants,
+                   'variant_form': ProductVariantForm()})
+
+
+@staff_required
+def variant_create(request, product_id):
+    product = get_object_or_404(PhysicalProduct, pk=product_id)
+    if request.method == 'POST':
+        form = ProductVariantForm(request.POST)
+        if form.is_valid():
+            variant = form.save(commit=False)
+            variant.product = product
+            try:
+                variant.full_clean()
+                variant.save()
+                services.record_audit(request.user, 'create', variant, summary='Variant created')
+                messages.success(request, f'Variant "{variant.name}" added.')
+            except ValidationError as e:
+                messages.error(request, '; '.join(f'{k}: {", ".join(v)}' for k, v in e.message_dict.items()))
+        else:
+            messages.error(request, 'Please correct the variant form.')
+    return redirect('operations:product_detail', product_id=product.id)
+
+
+@staff_required
+def recipe_create(request, variant_id):
+    variant = get_object_or_404(ProductVariant.objects.select_related('product'), pk=variant_id)
+    if request.method == 'POST':
+        form = RecipeForm(request.POST)
+        formset = RecipeMaterialFormSet(request.POST, prefix='mat')
+        if form.is_valid() and formset.is_valid():
+            materials = []
+            for f in formset:
+                material = f.cleaned_data.get('material')
+                if material:
+                    materials.append({'material': material,
+                                      'grams_per_unit': f.cleaned_data.get('grams_per_unit') or 0,
+                                      'waste_per_unit': f.cleaned_data.get('waste_per_unit') or 0})
+            if not materials:
+                messages.error(request, 'Add at least one filament line to the recipe.')
+            else:
+                recipe = services.create_recipe_version(
+                    variant=variant, materials=materials, notes=form.cleaned_data['notes'],
+                    actor=request.user)
+                messages.success(request, f'Recipe v{recipe.version} saved for {variant}.')
+                return redirect('operations:product_detail', product_id=variant.product_id)
+        else:
+            messages.error(request, 'Please correct the recipe form.')
+    else:
+        form = RecipeForm()
+        formset = RecipeMaterialFormSet(prefix='mat')
+    return render(request, 'operations/recipe_form.html',
+                  {'active_nav': 'products', 'variant': variant, 'form': form, 'formset': formset,
+                   'current': variant.current_recipe})
+
+
+# =============================================================================
+# Finished goods
+# =============================================================================
+
+@staff_required
+def finished_goods(request):
+    variants = ProductVariant.objects.select_related('product').all()
+    rows = [{'v': v, 'on_hand': v.on_hand} for v in variants]
+    rows = [r for r in rows if r['on_hand'] != 0] if request.GET.get('nonzero') else rows
+    return render(request, 'operations/finished_goods.html',
+                  {'active_nav': 'finished', 'rows': rows, 'nonzero': request.GET.get('nonzero')})
+
+
+# =============================================================================
+# Internal orders (no payment)
+# =============================================================================
+
+@staff_required
+def order_list(request):
+    orders = InternalOrder.objects.prefetch_related('lines').all()
+    paginator = Paginator(orders, 25)
+    page = paginator.get_page(request.GET.get('page'))
+    return render(request, 'operations/order_list.html', {'active_nav': 'orders', 'page': page})
+
+
+@staff_required
+def order_create(request):
+    if request.method == 'POST':
+        form = InternalOrderForm(request.POST)
+        formset = InternalOrderLineFormSet(request.POST, prefix='line')
+        if form.is_valid() and formset.is_valid():
+            lines = []
+            for f in formset:
+                variant = f.cleaned_data.get('variant')
+                qty = f.cleaned_data.get('quantity') or 0
+                if variant and qty > 0:
+                    lines.append({'variant': variant, 'quantity': qty})
+            if not lines:
+                messages.error(request, 'Add at least one product line.')
+            else:
+                d = form.cleaned_data
+                order = services.create_internal_order(
+                    purpose=d['purpose'], lines=lines, notes=d['notes'],
+                    ordered_on=d['ordered_on'], actor=request.user)
+                messages.success(request, 'Internal order created (no payment required). '
+                                          'Fulfill it to remove finished units.')
+                return redirect('operations:order_detail', order_id=order.id)
+        else:
+            messages.error(request, 'Please correct the order form.')
+    else:
+        form = InternalOrderForm()
+        formset = InternalOrderLineFormSet(prefix='line')
+    return render(request, 'operations/order_form.html',
+                  {'active_nav': 'orders', 'form': form, 'formset': formset})
+
+
+@staff_required
+def order_detail(request, order_id):
+    order = get_object_or_404(InternalOrder.objects.prefetch_related('lines__variant__product'), pk=order_id)
+    lines = []
+    for ln in order.lines.all():
+        lines.append({'ln': ln, 'on_hand': ln.variant.on_hand})
+    return render(request, 'operations/order_detail.html',
+                  {'active_nav': 'orders', 'order': order, 'lines': lines,
+                   'fulfillment_token': uuid.uuid4().hex})
+
+
+@staff_required
+def order_fulfill(request, order_id):
+    order = get_object_or_404(InternalOrder, pk=order_id)
+    if request.method != 'POST':
+        return redirect('operations:order_detail', order_id=order.id)
+    token = request.POST.get('fulfillment_token') or None
+    try:
+        services.fulfill_internal_order(order=order, actor=request.user, fulfillment_token=token)
+        messages.success(request, 'Order fulfilled — finished units removed from inventory. '
+                                  'No filament was deducted.')
+    except ValidationError as e:
+        messages.error(request, '; '.join(e.messages))
+    return redirect('operations:order_detail', order_id=order.id)
+
+
+@staff_required
+def order_cancel(request, order_id):
+    order = get_object_or_404(InternalOrder, pk=order_id)
+    if request.method == 'POST' and order.status == 'open':
+        order.status = 'cancelled'
+        order.save(update_fields=['status'])
+        services.record_audit(request.user, 'update', order, summary='Internal order cancelled')
+        messages.success(request, 'Order cancelled.')
+    return redirect('operations:order_detail', order_id=order.id)
+
+
+# =============================================================================
+# Reconstruct-history guide
+# =============================================================================
+
+@staff_required
+def reconstruct_guide(request):
+    return render(request, 'operations/reconstruct.html', {'active_nav': 'prints'})
