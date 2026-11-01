@@ -404,7 +404,9 @@ def opening_stock(request):
 
 @admin_required
 def purchase_list(request):
-    purchases = Purchase.objects.select_related('supplier').prefetch_related('lines', 'payments').all()
+    purchases = (Purchase.objects.select_related('supplier')
+                 .prefetch_related('lines', 'lines__spools', 'lines__movements__stock_item', 'payments')
+                 .all())
     total_recorded = sum((p.order_total() for p in purchases), Decimal('0'))
     paginator = Paginator(purchases, 25)
     page = paginator.get_page(request.GET.get('page'))
@@ -494,6 +496,61 @@ def line_edit(request, line_id):
     return render(request, 'operations/line_edit.html',
                   {'active_nav': 'purchases', 'form': form, 'line': line,
                    'received': getattr(form, 'received', False)})
+
+
+@admin_required
+def line_mark_not_received(request, line_id):
+    """Mark one line NOT received (undo an assumed/unconfirmed delivery). Safe,
+    audited, history-preserving; never touches costs, payments, or documents."""
+    line = get_object_or_404(PurchaseLine.objects.select_related('purchase'), pk=line_id)
+    if request.method == 'POST':
+        try:
+            services.mark_line_not_received(line=line, actor=request.user)
+            messages.success(request, f'"{line.description}" marked not received. '
+                                      'Costs, funding, payments and documents are unchanged.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=line.purchase_id)
+
+
+@admin_required
+def line_confirm_received(request, line_id):
+    """Confirm one line's delivery actually arrived (counts its inventory on-hand)."""
+    line = get_object_or_404(PurchaseLine.objects.select_related('purchase'), pk=line_id)
+    if request.method == 'POST':
+        try:
+            services.confirm_line_received(line=line, actor=request.user)
+            messages.success(request, f'"{line.description}" confirmed received — now counted on hand.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=line.purchase_id)
+
+
+@admin_required
+def purchase_mark_not_received(request, purchase_id):
+    """Mark the whole order NOT received (every receivable line)."""
+    purchase = get_object_or_404(Purchase, pk=purchase_id)
+    if request.method == 'POST':
+        try:
+            n = services.mark_purchase_not_received(purchase=purchase, actor=request.user)
+            messages.success(request, f'Whole order marked not received ({n} line(s)). '
+                                      'Costs, funding, payments and documents are unchanged.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=purchase.id)
+
+
+@admin_required
+def purchase_confirm_received(request, purchase_id):
+    """Confirm delivery of the whole order (every line with something recorded)."""
+    purchase = get_object_or_404(Purchase, pk=purchase_id)
+    if request.method == 'POST':
+        try:
+            n = services.confirm_purchase_received(purchase=purchase, actor=request.user)
+            messages.success(request, f'Whole order confirmed received ({n} line(s)) — now counted on hand.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=purchase.id)
 
 
 @admin_required

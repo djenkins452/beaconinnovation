@@ -18,7 +18,29 @@
      &nbsp; <strong>− discount</strong> ${{ purchase.discount_total|floatformat:2 }}
      &nbsp; = <strong>Total ${{ purchase.order_total|floatformat:2 }}</strong></p>
   {% if purchase.product_links %}<p class="help">Links:<br>{{ purchase.product_links|linebreaksbr }}</p>{% endif %}
-  {% if purchase.notes %}<p class="text-muted">{{ purchase.notes }}</p>{% endif %}
+  {% if purchase.notes %}<p class="text-muted">{{ purchase.notes }}</p>
+     <p class="help">Notes are a free-text memo only — they never set this order's receiving status.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Receiving</h2>
+  <p class="mb-2">Order status:
+    {% if purchase.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
+    {% elif purchase.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
+    {% elif purchase.receiving_status == 'partial' %}<span class="badge badge-amber">Partial</span>
+    {% elif purchase.receiving_status == 'none' %}<span class="badge badge-grey">Not received</span>
+    {% else %}<span class="badge badge-grey">No receivable lines</span>{% endif %}
+    <span class="help">— the same status shown on the purchases list and on each line below.</span></p>
+  {% if purchase.receiving_status == 'unconfirmed' or purchase.receiving_status == 'partial' %}
+  <p class="help mb-2">A <strong>delivery unconfirmed</strong> line was recorded/assumed but not confirmed as arrived; it is
+     <strong>not</strong> counted in available inventory. Confirm it when it actually arrives, or mark it not received if it did not.
+     Either action is audited and changes <strong>no</strong> costs, funding, payments, Finance expenses, or attached documents.</p>
+  <form method="post" action="{% url 'operations:purchase_confirm_received' purchase.id %}" style="display:inline;">
+    {% csrf_token %}<button type="submit" class="btn btn-primary">Confirm whole order received</button></form>
+  <form method="post" action="{% url 'operations:purchase_mark_not_received' purchase.id %}" style="display:inline;"
+        onsubmit="return confirm('Mark the WHOLE order as not received? Unused records created for it will be removed. Costs, funding, payments and documents are unchanged.');">
+    {% csrf_token %}<button type="submit" class="btn btn-secondary">Mark whole order not received</button></form>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -33,8 +55,10 @@
       <td>{{ line.get_item_type_display }}</td>
       <td>{{ line.get_use_type_display }}{% if line.use_type == 'shared' %} ({{ line.business_pct }}%){% endif %}</td>
       <td class="text-right">{{ line.quantity_ordered|floatformat:"-3" }} {{ line.unit }}</td>
-      <td>{% if line.delivery_state == 'received' %}<span class="badge badge-green">Received</span>
-          {% elif line.delivery_state == 'unconfirmed' %}<span class="badge badge-amber">Unconfirmed</span>
+      <td>{% if line.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
+          {% elif line.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
+          {% elif line.receiving_status == 'partial' %}<span class="badge badge-amber">Partially received</span>
+          {% elif line.receiving_status == 'na' %}<span class="text-muted">—</span>
           {% else %}<span class="badge badge-grey">Not received</span>{% endif %}</td>
       <td class="text-right">${{ line.unit_cost|floatformat:2 }}<br><span class="help">per {{ line.unit }}</span></td>
       <td class="text-right">${{ line.line_total|floatformat:2 }}</td>
@@ -42,6 +66,15 @@
         <a href="{% url 'operations:line_edit' line.id %}" class="btn btn-secondary btn-sm">Edit</a>
         {% if line.item_type != 'other' and line.receipt_state != 'received' %}
           <a href="{% url 'operations:line_receive' line.id %}" class="btn btn-primary btn-sm">Receive</a>
+        {% endif %}
+        {% if line.receiving_status == 'unconfirmed' or line.receiving_status == 'partial' %}
+          <form method="post" action="{% url 'operations:line_confirm_received' line.id %}" style="display:inline;">
+            {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Confirm receipt</button></form>
+        {% endif %}
+        {% if line.item_type != 'other' and line.receiving_status != 'outstanding' and line.receiving_status != 'na' %}
+          <form method="post" action="{% url 'operations:line_mark_not_received' line.id %}" style="display:inline;"
+                onsubmit="return confirm('Mark this line as NOT received? Any unused records created for it will be removed. Costs and documents are unchanged.');">
+            {% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">Mark not received</button></form>
         {% endif %}
       </td>
     </tr>

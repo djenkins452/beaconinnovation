@@ -551,17 +551,36 @@ class Purchase(models.Model):
         return self.payments.aggregate(t=Sum('amount'))['t'] or ZERO
 
     @property
-    def receipt_status(self):
-        """Derived receiving state across all lines."""
-        lines = list(self.lines.all())
+    def receiving_status(self):
+        """Single derived receiving state for the whole order, used by BOTH the
+        purchases list and the detail screen so they can never disagree.
+
+        Aggregates each line's :attr:`PurchaseLine.receiving_status` (lines with
+        nothing to receive — ``other`` — are ignored):
+
+        * ``received``   — every stock/filament/equipment line is confirmed on-hand;
+        * ``none``       — nothing has been received on any line;
+        * ``unconfirmed``— delivery recorded/assumed but not confirmed on any line
+          (excluded from available inventory);
+        * ``partial``    — a mix (some received/confirmed, some not);
+        * ``empty``      — the order has no receivable lines.
+        """
+        lines = [line for line in self.lines.all() if line.item_type != 'other']
         if not lines:
             return 'empty'
-        states = {line.receipt_state for line in lines}
+        states = {line.receiving_status for line in lines}
         if states == {'received'}:
             return 'received'
-        if states == {'none'}:
+        if states <= {'outstanding'}:
             return 'none'
+        if states <= {'unconfirmed'}:
+            return 'unconfirmed'
         return 'partial'
+
+    # Backwards-compatible alias (admin + any older callers). Same single source.
+    @property
+    def receipt_status(self):
+        return self.receiving_status
 
 
 class PurchaseLine(models.Model):
@@ -628,6 +647,10 @@ class PurchaseLine(models.Model):
 
     @property
     def receipt_state(self):
+        """Quantity-only view of receiving (how much has been counted in), used to
+        decide whether the manual Receive flow still has anything to receive. NOT the
+        badge shown to the owner — that is :attr:`receiving_status`, which also knows
+        whether the received inventory is delivery-confirmed."""
         if self.item_type == 'other':
             return 'received'  # nothing to receive into inventory
         if self.quantity_received <= ZERO:
@@ -636,22 +659,78 @@ class PurchaseLine(models.Model):
             return 'received'
         return 'partial'
 
+    def _receipt_confirmations(self):
+        """(confirmed, unconfirmed) counts of inventory records created from this
+        line. Filament → spools linked by ``source_line``; stock → stock items this
+        line posted a receipt into. Equipment is an asset, not ledger stock, and
+        'other' has nothing to receive. Records — never free-text notes — decide
+        whether a delivery is confirmed on-hand."""
+        confirmed = unconfirmed = 0
+        if self.item_type == 'filament':
+            for spool in self.spools.all():
+                if spool.delivery_confirmed:
+                    confirmed += 1
+                else:
+                    unconfirmed += 1
+        elif self.item_type == 'stock':
+            seen = set()
+            for mv in self.movements.filter(movement_type='purchase_receipt').select_related('stock_item'):
+                si = mv.stock_item
+                if si is None or si.pk in seen:
+                    continue
+                seen.add(si.pk)
+                if si.delivery_confirmed:
+                    confirmed += 1
+                else:
+                    unconfirmed += 1
+        return confirmed, unconfirmed
+
+    @property
+    def receiving_status(self):
+        """Single source of truth for this line's receiving badge, shown identically
+        on the purchases list and the detail screen.
+
+        An explicit owner/correction-set flag (``outstanding`` = not received,
+        ``unconfirmed`` = delivery not confirmed) always wins. Otherwise it is derived
+        from what was received AND whether that inventory is delivery-confirmed, so an
+        assumed/unconfirmed delivery is never shown as ``received`` or counted as
+        on-hand. Free-text notes are never consulted.
+        """
+        if self.item_type == 'other':
+            return 'na'  # nothing to receive into inventory
+        if self.delivery == 'outstanding':
+            return 'outstanding'
+        if self.delivery == 'unconfirmed':
+            return 'unconfirmed'
+        received = self.quantity_received or ZERO
+        if received <= ZERO:
+            return 'outstanding'
+        confirmed, unconfirmed = self._receipt_confirmations()
+        if unconfirmed and not confirmed:
+            return 'unconfirmed'
+        if unconfirmed and confirmed:
+            return 'partial'
+        if received >= self.quantity_ordered:
+            return 'received'
+        return 'partial'
+
+    RECEIVING_LABELS = {
+        'na': '—', 'outstanding': 'Not received', 'unconfirmed': 'Delivery unconfirmed',
+        'partial': 'Partially received', 'received': 'Received',
+    }
+
+    @property
+    def receiving_label(self):
+        return self.RECEIVING_LABELS.get(self.receiving_status, 'Not received')
+
+    # Backwards-compatible aliases (dashboard + existing tests). Same single source.
     @property
     def delivery_state(self):
-        """Explicit delivery state when set, otherwise derived from receiving.
-
-        received = confirmed on-hand; unconfirmed = ordered, delivery not confirmed;
-        outstanding = not received yet (arriving / pickup pending)."""
-        if self.delivery:
-            return self.delivery
-        rs = self.receipt_state
-        if rs in ('received', 'partial'):
-            return 'received'
-        return 'outstanding'
+        return self.receiving_status
 
     @property
     def delivery_label(self):
-        return dict(self.DELIVERY_CHOICES).get(self.delivery_state, 'Not received')
+        return self.receiving_label
 
     def clean(self):
         super().clean()

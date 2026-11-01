@@ -6,6 +6,48 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-11-01
 
+### Operations: consistent receiving status + owner self-service delivery corrections
+- **Root cause (not only display):** the purchases **list** badge read `Purchase.receipt_status`
+  (derived from each line's `quantity_received`) while the purchase **detail** badge read the
+  line's explicit `delivery` field. These were two independent truths, so an imported order whose
+  received counter was advanced AND whose `delivery` was `unconfirmed` showed "Received" on the
+  list and "Unconfirmed" on the detail. The records themselves disagreed too: the Bambu Lab order
+  `us792642123445854209` had `quantity_received` fully advanced on every line and 11 spool records
+  (all `delivery_confirmed=False`, grams-untracked, **zero ledger movements**) for a delivery that
+  had not happened.
+- **Single source of truth:** new `PurchaseLine.receiving_status` (na/outstanding/unconfirmed/
+  partial/received) used by BOTH screens. It folds in whether the created inventory is
+  delivery-confirmed, so an assumed/unconfirmed delivery is never shown as received or counted
+  on-hand, and it never consults free-text notes. `Purchase.receiving_status` aggregates it;
+  `receipt_status` and `delivery_state`/`delivery_label` now alias it so nothing can diverge.
+- **Audited correction workflow (service layer):** `mark_line_not_received` /
+  `mark_purchase_not_received` and `confirm_line_received` / `confirm_purchase_received`.
+  Marking not-received reverses any posted `purchase_receipt` movement (established reversing
+  movement; originals stay immutable), deletes the now-empty unused spool/stock record (or leaves
+  a reversed record at zero), resets `quantity_received` to 0 and `delivery` to `outstanding`.
+  It **protects inventory already used** (a spool/stock record with any non-receipt movement, or
+  a stock reversal that would go negative, is refused and points at inventory history). Confirming
+  flips the created records to delivery-confirmed and sets `delivery=received`, creating no new
+  movement. Both are idempotent.
+- **No side effects:** corrections never change costs, funding, payments, Finance expenses, or
+  attached documents, and never duplicate spools/movements.
+- **UI:** per-line "Confirm receipt" / "Mark not received" and order-level "Confirm whole order
+  received" / "Mark whole order not received" on `purchase_detail.html`, plus a Receiving card
+  showing the single status; list badge updated to the same status; a note that free-text notes
+  never set receiving status.
+- Files: `operations/models.py` (`receiving_status` on line + purchase, `_receipt_confirmations`,
+  aliases), `operations/services.py` (four correction services + `_line_inventory_records`),
+  `operations/views.py` (four endpoints + list prefetch), `operations/urls.py` (four routes),
+  templates `purchase_list.html`, `purchase_detail.html`.
+- Migrations: none (code-only; `check` clean).
+- Tests: `operations/tests/test_receiving_status.py` (20 tests: status consistency, inventory
+  exclusion, notes-not-truth, mark-not-received incl. used-inventory protection and stock
+  reversal, confirm, idempotency, partial, purchase-level, admin-only views). Full operations
+  suite **83 pass** on PostgreSQL. Also verified live in the browser on local PostgreSQL
+  (list+detail agree; mark-one-line → partial; confirm other → received; repeats no-op).
+- Notes: the production Bambu order was **left unchanged** for the owner to correct himself via
+  the new workflow.
+
 ### Operations: admin-only navigation links + tightened access (is_active + is_superuser)
 - **Access correction:** the Operations gate changed from `is_staff` to **`is_active` AND `is_superuser`** (administrators only). `operations/views.py` `staff_required` → `admin_required`, applied to every view, so pages, private attachments, and all mutation endpoints are admin-only. Anonymous → login redirect; regular users and **non-admin staff** → 404; inactive admins denied. No public/email-based bypass.
 - **Navigation links (admin-only, named URLs, existing styles, desktop + mobile):** added an "Operations" link, visible only to active superusers (`{% if user.is_authenticated and user.is_active and user.is_superuser %}`), to:

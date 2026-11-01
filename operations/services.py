@@ -687,6 +687,179 @@ def edit_purchase_line(*, line, actor, **fields):
 
 
 # =============================================================================
+# Delivery-status corrections (owner self-service — audited, history-preserving)
+# =============================================================================
+
+def _line_inventory_records(line):
+    """Inventory records created from a line.
+
+    Returns ``(spools, stock_items)``. Filament spools are linked by ``source_line``;
+    stock items are the ones this line posted a ``purchase_receipt`` into. Equipment is
+    an asset (never in the ledger) and is deliberately not touched by delivery-status
+    corrections.
+    """
+    spools = list(line.spools.all())
+    stock_items = list(
+        StockItem.objects.filter(
+            movements__purchase_line=line, movements__movement_type='purchase_receipt',
+        ).distinct()
+    )
+    return spools, stock_items
+
+
+@transaction.atomic
+def mark_line_not_received(*, line, actor):
+    """Correct a line wrongly recorded as received/assumed-delivered back to NOT
+    received — safely, through the ledger, with history preserved.
+
+    * **Protects inventory already used.** If a spool from this line has any movement
+      other than its own purchase receipt (consumed, wasted, adjusted, or already
+      reversed), the correction is refused with a message pointing at the inventory
+      reversal workflow — real inventory is never silently rewritten. For stock, the
+      ledger's own sufficiency check refuses a reversal that would drive on-hand
+      negative (i.e. stock already drawn down), to the same effect.
+    * For each remaining record it reverses any ``purchase_receipt`` movement (an
+      established reversing movement; the original stays immutable), then deletes the
+      now-empty, unused record so no phantom spool/stock lingers. A record whose
+      receipt was reversed keeps its immutable ledger rows and is left at zero and
+      delivery-unconfirmed rather than deleted.
+    * Resets the line's received quantity to zero and sets its delivery state to
+      ``outstanding``. Costs, funding, payments, finance expenses and attached
+      documents are never touched, and no new spool/stock/movement is duplicated.
+
+    Idempotent: running it again on an already-not-received line is a no-op.
+    """
+    spools, stock_items = _line_inventory_records(line)
+
+    used = [f'spool {s.spool_uid}' for s in spools
+            if s.movements.exclude(movement_type='purchase_receipt').exists()]
+    if used:
+        raise ValidationError(
+            'This line has inventory that has already been used or adjusted (' +
+            ', '.join(used) + '). Reverse those movements in inventory history first, '
+            'then mark the line not received.')
+
+    summary = {'spools_removed': 0, 'receipts_reversed': 0, 'records_zeroed': 0}
+
+    for spool in spools:
+        for mv in spool.movements.filter(movement_type='purchase_receipt'):
+            if not mv.reversed_by.exists():
+                reverse_movement(mv, actor, reason='Delivery corrected: not received')
+                summary['receipts_reversed'] += 1
+        if not spool.movements.exists():
+            record_audit(actor, 'delete', spool,
+                         summary='Phantom spool removed (delivery corrected to not received)')
+            spool.delete()
+            summary['spools_removed'] += 1
+        else:
+            if spool.delivery_confirmed:
+                spool.delivery_confirmed = False
+                spool.save(update_fields=['delivery_confirmed'])
+            record_audit(actor, 'update', spool,
+                         summary='Receipt reversed; spool left at zero (not received)')
+            summary['records_zeroed'] += 1
+
+    for si in stock_items:
+        for mv in si.movements.filter(purchase_line=line, movement_type='purchase_receipt'):
+            if not mv.reversed_by.exists():
+                # reverse_movement refuses (InsufficientStockError) if the stock has
+                # since been drawn down — that is the "already used" protection for stock.
+                reverse_movement(mv, actor, reason='Delivery corrected: not received')
+                summary['receipts_reversed'] += 1
+        if si.delivery_confirmed:
+            si.delivery_confirmed = False
+            si.save(update_fields=['delivery_confirmed'])
+        record_audit(actor, 'update', si,
+                     summary='Receipt reversed; stock left at zero (not received)')
+        summary['records_zeroed'] += 1
+
+    changes = {}
+    if (line.quantity_received or ZERO) != ZERO:
+        changes['quantity_received'] = [str(line.quantity_received), '0']
+        line.quantity_received = ZERO
+    if line.delivery != 'outstanding':
+        changes['delivery'] = [line.delivery or '', 'outstanding']
+        line.delivery = 'outstanding'
+    if changes:
+        line.save(update_fields=list(changes.keys()))
+    record_audit(actor, 'update', line,
+                 summary='Line marked NOT received (delivery correction)',
+                 changes={**changes, **{k: v for k, v in summary.items() if v}})
+    return line
+
+
+@transaction.atomic
+def confirm_line_received(*, line, actor):
+    """Confirm that a recorded/assumed delivery has actually arrived.
+
+    Flips every spool/stock record created from this line to delivery-confirmed (so it
+    now counts as on-hand) and sets the line's delivery state to ``received``. Creates
+    no new inventory movement and never touches costs, funding, payments, expenses or
+    documents. Refuses if there is nothing recorded to confirm (use the Receive flow to
+    record what arrived). Idempotent."""
+    spools, stock_items = _line_inventory_records(line)
+    received = (line.quantity_received or ZERO) > ZERO
+    if not spools and not stock_items and not received:
+        raise ValidationError(
+            'Nothing has been recorded on this line to confirm. Use Receive to record '
+            'what arrived.')
+
+    confirmed = 0
+    for spool in spools:
+        if not spool.delivery_confirmed:
+            confirm_spool_delivery(spool=spool, actor=actor)
+            confirmed += 1
+    for si in stock_items:
+        if not si.delivery_confirmed:
+            confirm_stock_delivery(stock_item=si, actor=actor)
+            confirmed += 1
+
+    changes = {}
+    if line.delivery != 'received':
+        changes['delivery'] = [line.delivery or '', 'received']
+        line.delivery = 'received'
+        line.save(update_fields=['delivery'])
+    if changes or confirmed:
+        record_audit(actor, 'update', line,
+                     summary=f'Delivery confirmed ({confirmed} record(s) now on-hand)',
+                     changes=changes)
+    return line
+
+
+@transaction.atomic
+def mark_purchase_not_received(*, purchase, actor):
+    """Mark every receivable line on an order NOT received (see
+    :func:`mark_line_not_received`). Non-inventory ('other') lines are skipped. One
+    summary audit event is written for the order."""
+    n = 0
+    for line in purchase.lines.all():
+        if line.item_type == 'other':
+            continue
+        mark_line_not_received(line=line, actor=actor)
+        n += 1
+    record_audit(actor, 'update', purchase,
+                 summary=f'Whole order marked NOT received ({n} line(s))')
+    return n
+
+
+@transaction.atomic
+def confirm_purchase_received(*, purchase, actor):
+    """Confirm delivery of every line on an order that has something recorded to
+    confirm (see :func:`confirm_line_received`). One summary audit event is written."""
+    n = 0
+    for line in purchase.lines.all():
+        if line.item_type == 'other':
+            continue
+        spools, stock_items = _line_inventory_records(line)
+        if spools or stock_items or (line.quantity_received or ZERO) > ZERO:
+            confirm_line_received(line=line, actor=actor)
+            n += 1
+    record_audit(actor, 'update', purchase,
+                 summary=f'Whole order confirmed received ({n} line(s))')
+    return n
+
+
+# =============================================================================
 # Finance bridge (the only money touch — manual by design)
 # =============================================================================
 

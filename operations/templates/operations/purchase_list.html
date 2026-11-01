@@ -17,9 +17,10 @@
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.order_number|default:"—" }}</a></td>
       <td class="text-right">${{ p.order_total|floatformat:2 }}</td>
       <td>
-        {% if p.receipt_status == 'received' %}<span class="badge badge-green">Received</span>
-        {% elif p.receipt_status == 'partial' %}<span class="badge badge-amber">Partial</span>
-        {% elif p.receipt_status == 'none' %}<span class="badge badge-grey">Not received</span>
+        {% if p.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
+        {% elif p.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
+        {% elif p.receiving_status == 'partial' %}<span class="badge badge-amber">Partial</span>
+        {% elif p.receiving_status == 'none' %}<span class="badge badge-grey">Not received</span>
         {% else %}<span class="badge badge-grey">No lines</span>{% endif %}
       </td>
       <td>{% if p.funding_label %}<span class="badge badge-grey">{{ p.funding_label }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
