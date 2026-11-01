@@ -238,6 +238,10 @@
                 <a href="{% url 'finance:spending_report' %}" {% if 'spending' in request.resolver_match.url_name %}class="active"{% endif %}>Reports</a>
                 <a href="{% url 'finance:alert_list' %}" {% if 'alert' in request.resolver_match.url_name %}class="active"{% endif %}>Tax Alerts</a>
                 <a href="{% url 'finance:audit_log_list' %}" {% if 'audit' in request.resolver_match.url_name %}class="active"{% endif %}>Audit Log</a>
+                {% if user.is_authenticated and user.is_active and user.is_superuser %}
+                <span class="nav-divider"></span>
+                <a href="{% url 'operations:dashboard' %}">Operations</a>
+                {% endif %}
             </div>
         </div>
     </nav>

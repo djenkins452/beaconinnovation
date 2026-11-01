@@ -6,6 +6,16 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-11-01
 
+### Operations: admin-only navigation links + tightened access (is_active + is_superuser)
+- **Access correction:** the Operations gate changed from `is_staff` to **`is_active` AND `is_superuser`** (administrators only). `operations/views.py` `staff_required` → `admin_required`, applied to every view, so pages, private attachments, and all mutation endpoints are admin-only. Anonymous → login redirect; regular users and **non-admin staff** → 404; inactive admins denied. No public/email-based bypass.
+- **Navigation links (admin-only, named URLs, existing styles, desktop + mobile):** added an "Operations" link, visible only to active superusers (`{% if user.is_authenticated and user.is_active and user.is_superuser %}`), to:
+  - Main website navbar — `website/templates/home.html` (next to "My Products").
+  - Software downloads portal — `products/templates/products/base.html` (next to Admin; kept "Beacon Downloads"/software distinct from Operations' physical Products).
+  - Finance — `finance/templates/finance/base.html` (after Audit Log, behind a divider).
+  - Admin console sidebar — `admin_console/templates/admin_console/base.html` (bottom group, above Back to Site; distinct from the software "Products" item).
+- **Beacon Home within Operations:** `operations/templates/operations/base.html` now has a "Beacon Home" link (named `home`) alongside "Finance →".
+- Tests: `operations/tests/test_access.py` rewritten to the admin matrix — anonymous (302), regular (404), **non-admin staff (404, incl. a mutation POST)**, inactive admin (denied), admin (200) across pages + documents; smoke-test users promoted to superuser. 37 operations tests pass on PostgreSQL; full default-DB suite 536/537 (same pre-existing unrelated `products` AIMS-artifact failure). Verified live that the link renders for an admin on all four areas and Beacon Home works.
+
 ### Phase 1b — Operations: products, versioned recipes, production, finished goods, internal orders, historical reconstruction
 - **Context:** extends the deployed Phase 1 operations module to the clarified workflow — each distinct printed design is a product; recipes know expected usage; prints deduct consumption AND add successful units to finished-goods inventory; internal orders (no payment) remove finished units; and the first days can be reconstructed chronologically.
 - **Products/recipes:** new `PhysicalProduct` → `ProductVariant` (separate from the software-download `products.Product`; `internal_only`/`catalog_eligible` flags). `ProductionRecipe` is **versioned** (`RecipeMaterial` = grams_per_unit into part + waste_per_unit); a new version never rewrites past prints because `PrintProduct` snapshots the version used. Waste does not auto-scale — per-unit waste in the recipe, shared batch purge entered once at print time.

@@ -1,5 +1,8 @@
-"""Access-control tests: Operations is staff-only, and its private attachments are
-served only to staff through the access-checked views."""
+"""Access-control tests: Operations is ADMIN-ONLY (is_active + is_superuser).
+
+Anonymous, regular, and non-admin staff users are all denied — pages, private
+attachments, and mutation endpoints alike. Only active superusers get in.
+"""
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -15,10 +18,19 @@ D = Decimal
 PDF_BYTES = b'%PDF-1.4 operations purchase doc \x00\x01 end'
 
 
-class StaffGateTests(TestCase):
+def _make_users():
+    return {
+        'admin': User.objects.create_user('admin', 'a@example.com', 'pw', is_staff=True, is_superuser=True),
+        'regular': User.objects.create_user('cust', 'c@example.com', 'pw'),
+        'nonadmin_staff': User.objects.create_user('stf', 's@example.com', 'pw', is_staff=True),
+        'inactive_admin': User.objects.create_user('ia', 'ia@example.com', 'pw',
+                                                   is_staff=True, is_superuser=True, is_active=False),
+    }
+
+
+class AdminGateTests(TestCase):
     def setUp(self):
-        self.staff = User.objects.create_user('staff', 'staff@example.com', 'pw', is_staff=True)
-        self.customer = User.objects.create_user('cust', 'cust@example.com', 'pw', is_staff=False)
+        self.users = _make_users()
 
     def _urls(self):
         return [
@@ -26,61 +38,81 @@ class StaffGateTests(TestCase):
             reverse('operations:purchase_list'),
             reverse('operations:spool_list'),
             reverse('operations:material_list'),
+            reverse('operations:product_list'),
+            reverse('operations:finished_goods'),
+            reverse('operations:order_list'),
             reverse('operations:movement_list'),
-            reverse('operations:print_list'),
+            reverse('operations:print_create'),  # a mutation endpoint (GET form)
         ]
 
-    def test_unauthenticated_is_redirected(self):
+    def test_anonymous_is_redirected(self):
         for url in self._urls():
-            resp = self.client.get(url)
-            self.assertIn(resp.status_code, (301, 302), msg=url)
+            self.assertIn(self.client.get(url).status_code, (301, 302), msg=url)
 
-    def test_authenticated_non_staff_gets_404(self):
-        self.client.force_login(self.customer)
+    def test_regular_user_denied(self):
+        self.client.force_login(self.users['regular'])
         for url in self._urls():
-            resp = self.client.get(url)
-            self.assertEqual(resp.status_code, 404, msg=url)
+            self.assertEqual(self.client.get(url).status_code, 404, msg=url)
 
-    def test_staff_gets_200(self):
-        self.client.force_login(self.staff)
+    def test_non_admin_staff_denied(self):
+        # The key correction: is_staff alone is NOT enough.
+        self.client.force_login(self.users['nonadmin_staff'])
         for url in self._urls():
-            resp = self.client.get(url)
-            self.assertEqual(resp.status_code, 200, msg=url)
+            self.assertEqual(self.client.get(url).status_code, 404, msg=url)
+
+    def test_inactive_admin_denied(self):
+        self.client.force_login(self.users['inactive_admin'])
+        for url in self._urls():
+            # Inactive users are logged out by the auth backend (302) or 404'd by the
+            # gate — either way, never 200.
+            self.assertNotEqual(self.client.get(url).status_code, 200, msg=url)
+
+    def test_admin_allowed(self):
+        self.client.force_login(self.users['admin'])
+        for url in self._urls():
+            self.assertEqual(self.client.get(url).status_code, 200, msg=url)
+
+    def test_non_admin_staff_denied_mutation_post(self):
+        """A non-admin staff user cannot POST to a mutation endpoint."""
+        self.client.force_login(self.users['nonadmin_staff'])
+        resp = self.client.post(reverse('operations:print_create'), {})
+        self.assertEqual(resp.status_code, 404)
 
 
 class DocumentAccessTests(TestCase):
     def setUp(self):
-        self.staff = User.objects.create_user('staff', 'staff@example.com', 'pw', is_staff=True)
-        self.customer = User.objects.create_user('cust', 'cust@example.com', 'pw', is_staff=False)
-        self.purchase = Purchase.objects.create(supplier_name='X', created_by=self.staff)
+        self.users = _make_users()
+        self.purchase = Purchase.objects.create(supplier_name='X', created_by=self.users['admin'])
         self.doc = PurchaseDocument(
             purchase=self.purchase, original_filename='r.pdf', file_type='pdf',
-            file_size=len(PDF_BYTES), uploaded_by=self.staff)
+            file_size=len(PDF_BYTES), uploaded_by=self.users['admin'])
         self.doc.file.save('operations/purchase_docs/2026/01/r.pdf', ContentFile(PDF_BYTES), save=True)
 
     def test_document_has_no_public_url(self):
-        # DB-backed private storage exposes no public URL.
         self.assertEqual(self.doc.file.url, '')
 
-    def test_staff_can_view_and_download(self):
-        self.client.force_login(self.staff)
+    def test_admin_can_view_and_download(self):
+        self.client.force_login(self.users['admin'])
         view = self.client.get(reverse('operations:document_view', args=[self.doc.id]))
         self.assertEqual(view.status_code, 200)
         self.assertEqual(b''.join(view.streaming_content), PDF_BYTES)
         dl = self.client.get(reverse('operations:document_download', args=[self.doc.id]))
         self.assertEqual(dl.status_code, 200)
 
-    def test_non_staff_denied_document(self):
-        self.client.force_login(self.customer)
-        self.assertEqual(self.client.get(reverse('operations:document_view', args=[self.doc.id])).status_code, 404)
-        self.assertEqual(self.client.get(reverse('operations:document_download', args=[self.doc.id])).status_code, 404)
+    def test_non_admin_denied_document(self):
+        for key in ('regular', 'nonadmin_staff'):
+            self.client.force_login(self.users[key])
+            self.assertEqual(
+                self.client.get(reverse('operations:document_view', args=[self.doc.id])).status_code, 404, msg=key)
+            self.assertEqual(
+                self.client.get(reverse('operations:document_download', args=[self.doc.id])).status_code, 404, msg=key)
 
 
 class RenderSmokeTests(TestCase):
     """Every GET-able screen renders for staff (catches template/reverse errors)."""
 
     def setUp(self):
-        self.staff = User.objects.create_user('staff', 'staff@example.com', 'pw', is_staff=True)
+        self.staff = User.objects.create_user('staff', 'staff@example.com', 'pw', is_staff=True, is_superuser=True)
         self.client.force_login(self.staff)
         self.filament = Material.objects.create(
             material_type='filament', name='Matte Black', default_unit='g')
@@ -133,7 +165,7 @@ class Phase1bRenderSmokeTests(TestCase):
     def setUp(self):
         from operations.models import PhysicalProduct, ProductVariant, InternalOrder
         from operations import services
-        self.staff = User.objects.create_user('staff2', 's2@example.com', 'pw', is_staff=True)
+        self.staff = User.objects.create_user('staff2', 's2@example.com', 'pw', is_staff=True, is_superuser=True)
         self.client.force_login(self.staff)
         self.product = PhysicalProduct.objects.create(name='Desk bin', internal_only=True)
         self.variant = ProductVariant.objects.create(product=self.product, name='Default')

@@ -1,7 +1,8 @@
-"""Views for the staff-only Operations module (3D-printing).
+"""Views for the admin-only Operations module (3D-printing).
 
-Every view is gated by :func:`staff_required` (authenticated **and** ``is_staff``;
-non-staff get a 404, matching ``admin_console``). All state changes go through
+Every view is gated by :func:`admin_required` (authenticated **and** ``is_active``
+**and** ``is_superuser``; any non-admin — regular user or non-admin staff — gets a
+404, so the internal area is never revealed). All state changes go through
 ``operations.services`` so audit, the ledger, idempotency and the finance bridge
 are always honoured.
 """
@@ -33,13 +34,18 @@ from operations.models import (
 )
 
 
-def staff_required(view):
-    """Authenticated + is_staff. Unauthenticated → login; authed non-staff → 404
-    (do not reveal the internal area)."""
+def admin_required(view):
+    """Administrators only: authenticated AND ``is_active`` AND ``is_superuser``.
+
+    Unauthenticated → login redirect; any authenticated non-admin (including
+    regular users and non-admin staff) → 404, so the internal area is never
+    revealed. This gate backs every Operations view — pages, attachments and
+    mutation endpoints alike — so server-side access always matches the nav.
+    """
     @wraps(view)
     @login_required
     def wrapper(request, *args, **kwargs):
-        if not request.user.is_staff:
+        if not (request.user.is_active and request.user.is_superuser):
             raise Http404()
         return view(request, *args, **kwargs)
     return wrapper
@@ -49,7 +55,7 @@ def staff_required(view):
 # Dashboard
 # =============================================================================
 
-@staff_required
+@admin_required
 def dashboard(request):
     materials = list(Material.objects.filter(is_active=True))
     low_stock = [m for m in materials if m.is_low_stock]
@@ -74,13 +80,13 @@ def dashboard(request):
 # Suppliers / Locations
 # =============================================================================
 
-@staff_required
+@admin_required
 def supplier_list(request):
     return render(request, 'operations/supplier_list.html',
                   {'active_nav': 'suppliers', 'suppliers': Supplier.objects.all()})
 
 
-@staff_required
+@admin_required
 def supplier_create(request):
     form = SupplierForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -95,13 +101,13 @@ def supplier_create(request):
                    'cancel_url': reverse('operations:supplier_list')})
 
 
-@staff_required
+@admin_required
 def location_list(request):
     return render(request, 'operations/location_list.html',
                   {'active_nav': 'locations', 'locations': Location.objects.all()})
 
 
-@staff_required
+@admin_required
 def location_create(request):
     form = LocationForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -118,7 +124,7 @@ def location_create(request):
 # Materials
 # =============================================================================
 
-@staff_required
+@admin_required
 def material_list(request):
     qs = Material.objects.filter(is_active=True)
     mtype = request.GET.get('type', '')
@@ -131,7 +137,7 @@ def material_list(request):
                    'type_choices': Material.MATERIAL_TYPE_CHOICES})
 
 
-@staff_required
+@admin_required
 def material_create(request):
     form = MaterialForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -146,7 +152,7 @@ def material_create(request):
                    'cancel_url': reverse('operations:material_list')})
 
 
-@staff_required
+@admin_required
 def material_detail(request, material_id):
     material = get_object_or_404(Material, pk=material_id)
     ctx = {
@@ -162,7 +168,7 @@ def material_detail(request, material_id):
 # Spools + weigh-in / reconcile
 # =============================================================================
 
-@staff_required
+@admin_required
 def spool_list(request):
     spools = FilamentSpool.objects.select_related('material', 'location').all()
     status = request.GET.get('status', '')
@@ -175,7 +181,7 @@ def spool_list(request):
                    'status_choices': FilamentSpool.STATUS_CHOICES})
 
 
-@staff_required
+@admin_required
 def spool_detail(request, spool_id):
     spool = get_object_or_404(FilamentSpool.objects.select_related('material', 'location'), pk=spool_id)
     weigh_form = WeighSpoolForm(initial={'tare_grams': spool.tare_weight_g or ''})
@@ -190,7 +196,7 @@ def spool_detail(request, spool_id):
     return render(request, 'operations/spool_detail.html', ctx)
 
 
-@staff_required
+@admin_required
 def spool_weigh(request, spool_id):
     spool = get_object_or_404(FilamentSpool, pk=spool_id)
     if request.method != 'POST':
@@ -211,7 +217,7 @@ def spool_weigh(request, spool_id):
     return redirect('operations:spool_detail', spool_id=spool.id)
 
 
-@staff_required
+@admin_required
 def measurement_reconcile(request, measurement_id):
     measurement = get_object_or_404(ScaleMeasurement, pk=measurement_id)
     if request.method != 'POST':
@@ -228,20 +234,20 @@ def measurement_reconcile(request, measurement_id):
 # Stock + equipment
 # =============================================================================
 
-@staff_required
+@admin_required
 def stock_list(request):
     items = StockItem.objects.select_related('material', 'location').all()
     rows = [{'i': i, 'on_hand': i.on_hand} for i in items]
     return render(request, 'operations/stock_list.html', {'active_nav': 'stock', 'rows': rows})
 
 
-@staff_required
+@admin_required
 def equipment_list(request):
     return render(request, 'operations/equipment_list.html',
                   {'active_nav': 'equipment', 'equipment': Equipment.objects.all()})
 
 
-@staff_required
+@admin_required
 def equipment_create(request):
     form = EquipmentForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -260,12 +266,12 @@ def equipment_create(request):
 # Opening inventory (never creates a finance expense)
 # =============================================================================
 
-@staff_required
+@admin_required
 def opening_index(request):
     return render(request, 'operations/opening_index.html', {'active_nav': 'opening'})
 
 
-@staff_required
+@admin_required
 def opening_spool(request):
     form = OpeningSpoolForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -288,7 +294,7 @@ def opening_spool(request):
                    'cancel_url': reverse('operations:opening_index')})
 
 
-@staff_required
+@admin_required
 def opening_stock(request):
     form = OpeningStockForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -313,7 +319,7 @@ def opening_stock(request):
 # Purchases
 # =============================================================================
 
-@staff_required
+@admin_required
 def purchase_list(request):
     purchases = Purchase.objects.select_related('supplier').prefetch_related('lines', 'payments').all()
     paginator = Paginator(purchases, 25)
@@ -322,7 +328,7 @@ def purchase_list(request):
                   {'active_nav': 'purchases', 'page': page})
 
 
-@staff_required
+@admin_required
 def purchase_create(request):
     form = PurchaseForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -337,7 +343,7 @@ def purchase_create(request):
                    'cancel_url': reverse('operations:purchase_list')})
 
 
-@staff_required
+@admin_required
 def purchase_detail(request, purchase_id):
     purchase = get_object_or_404(
         Purchase.objects.select_related('supplier').prefetch_related('lines', 'payments', 'documents'),
@@ -358,7 +364,7 @@ def purchase_detail(request, purchase_id):
     return render(request, 'operations/purchase_detail.html', ctx)
 
 
-@staff_required
+@admin_required
 def purchase_add_line(request, purchase_id):
     purchase = get_object_or_404(Purchase, pk=purchase_id)
     if request.method == 'POST':
@@ -376,7 +382,7 @@ def purchase_add_line(request, purchase_id):
     return redirect('operations:purchase_detail', purchase_id=purchase.id)
 
 
-@staff_required
+@admin_required
 def line_receive(request, line_id):
     line = get_object_or_404(PurchaseLine.objects.select_related('purchase', 'material'), pk=line_id)
     if line.item_type == 'filament':
@@ -433,7 +439,7 @@ def line_receive(request, line_id):
                    'idempotency_key': uuid.uuid4().hex})
 
 
-@staff_required
+@admin_required
 def purchase_link_payment(request, purchase_id):
     purchase = get_object_or_404(Purchase, pk=purchase_id)
     if request.method == 'POST':
@@ -451,7 +457,7 @@ def purchase_link_payment(request, purchase_id):
     return redirect('operations:purchase_detail', purchase_id=purchase.id)
 
 
-@staff_required
+@admin_required
 def purchase_create_expense(request, purchase_id):
     purchase = get_object_or_404(Purchase, pk=purchase_id)
     if request.method == 'POST':
@@ -475,7 +481,7 @@ def purchase_create_expense(request, purchase_id):
 # Purchase documents (private, DB-backed — reuses finance storage)
 # =============================================================================
 
-@staff_required
+@admin_required
 def purchase_upload_document(request, purchase_id):
     purchase = get_object_or_404(Purchase, pk=purchase_id)
     if request.method == 'POST' and 'file' in request.FILES:
@@ -507,12 +513,12 @@ def _serve_document(request, document_id, disposition):
     return response
 
 
-@staff_required
+@admin_required
 def document_view(request, document_id):
     return _serve_document(request, document_id, 'inline')
 
 
-@staff_required
+@admin_required
 def document_download(request, document_id):
     return _serve_document(request, document_id, 'attachment')
 
@@ -521,7 +527,7 @@ def document_download(request, document_id):
 # Printing
 # =============================================================================
 
-@staff_required
+@admin_required
 def print_list(request):
     prints = PrintLog.objects.select_related('printer').all()
     paginator = Paginator(prints, 25)
@@ -529,7 +535,7 @@ def print_list(request):
     return render(request, 'operations/print_list.html', {'active_nav': 'prints', 'page': page})
 
 
-@staff_required
+@admin_required
 def print_create(request):
     if request.method == 'POST':
         form = PrintLogForm(request.POST)
@@ -592,7 +598,7 @@ def print_create(request):
                    'purpose_choices': InternalOrder.PURPOSE_CHOICES})
 
 
-@staff_required
+@admin_required
 def print_detail(request, print_id):
     print_log = get_object_or_404(PrintLog.objects.select_related('printer'), pk=print_id)
     return render(request, 'operations/print_detail.html',
@@ -601,7 +607,7 @@ def print_detail(request, print_id):
                    'products': print_log.products.select_related('variant', 'variant__product').all()})
 
 
-@staff_required
+@admin_required
 def recipe_expected(request):
     """JSON: expected per-material consumption for a variant + quantity (recipe
     prefill for the print form). Returns [] when the variant has no current recipe."""
@@ -624,7 +630,7 @@ def recipe_expected(request):
 # Inventory history (movements) + corrections
 # =============================================================================
 
-@staff_required
+@admin_required
 def movement_list(request):
     movements = InventoryMovement.objects.select_related(
         'spool', 'spool__material', 'stock_item', 'stock_item__material',
@@ -642,7 +648,7 @@ def movement_list(request):
                    'type_choices': InventoryMovement.MOVEMENT_TYPE_CHOICES})
 
 
-@staff_required
+@admin_required
 def movement_reverse(request, movement_id):
     movement = get_object_or_404(InventoryMovement, pk=movement_id)
     if request.method != 'POST':
@@ -661,14 +667,14 @@ def movement_reverse(request, movement_id):
 # Physical products, variants, recipes
 # =============================================================================
 
-@staff_required
+@admin_required
 def product_list(request):
     products = PhysicalProduct.objects.filter(is_active=True).prefetch_related('variants')
     rows = [{'p': p, 'on_hand': p.total_on_hand, 'variants': p.variants.count()} for p in products]
     return render(request, 'operations/product_list.html', {'active_nav': 'products', 'rows': rows})
 
 
-@staff_required
+@admin_required
 def product_create(request):
     form = PhysicalProductForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -688,7 +694,7 @@ def product_create(request):
                    'cancel_url': reverse('operations:product_list')})
 
 
-@staff_required
+@admin_required
 def product_detail(request, product_id):
     product = get_object_or_404(PhysicalProduct.objects.prefetch_related('variants'), pk=product_id)
     variants = []
@@ -699,7 +705,7 @@ def product_detail(request, product_id):
                    'variant_form': ProductVariantForm()})
 
 
-@staff_required
+@admin_required
 def variant_create(request, product_id):
     product = get_object_or_404(PhysicalProduct, pk=product_id)
     if request.method == 'POST':
@@ -719,7 +725,7 @@ def variant_create(request, product_id):
     return redirect('operations:product_detail', product_id=product.id)
 
 
-@staff_required
+@admin_required
 def recipe_create(request, variant_id):
     variant = get_object_or_404(ProductVariant.objects.select_related('product'), pk=variant_id)
     if request.method == 'POST':
@@ -755,7 +761,7 @@ def recipe_create(request, variant_id):
 # Finished goods
 # =============================================================================
 
-@staff_required
+@admin_required
 def finished_goods(request):
     variants = ProductVariant.objects.select_related('product').all()
     rows = [{'v': v, 'on_hand': v.on_hand} for v in variants]
@@ -768,7 +774,7 @@ def finished_goods(request):
 # Internal orders (no payment)
 # =============================================================================
 
-@staff_required
+@admin_required
 def order_list(request):
     orders = InternalOrder.objects.prefetch_related('lines').all()
     paginator = Paginator(orders, 25)
@@ -776,7 +782,7 @@ def order_list(request):
     return render(request, 'operations/order_list.html', {'active_nav': 'orders', 'page': page})
 
 
-@staff_required
+@admin_required
 def order_create(request):
     if request.method == 'POST':
         form = InternalOrderForm(request.POST)
@@ -807,7 +813,7 @@ def order_create(request):
                   {'active_nav': 'orders', 'form': form, 'formset': formset})
 
 
-@staff_required
+@admin_required
 def order_detail(request, order_id):
     order = get_object_or_404(InternalOrder.objects.prefetch_related('lines__variant__product'), pk=order_id)
     lines = []
@@ -818,7 +824,7 @@ def order_detail(request, order_id):
                    'fulfillment_token': uuid.uuid4().hex})
 
 
-@staff_required
+@admin_required
 def order_fulfill(request, order_id):
     order = get_object_or_404(InternalOrder, pk=order_id)
     if request.method != 'POST':
@@ -833,7 +839,7 @@ def order_fulfill(request, order_id):
     return redirect('operations:order_detail', order_id=order.id)
 
 
-@staff_required
+@admin_required
 def order_cancel(request, order_id):
     order = get_object_or_404(InternalOrder, pk=order_id)
     if request.method == 'POST' and order.status == 'open':
@@ -848,6 +854,6 @@ def order_cancel(request, order_id):
 # Reconstruct-history guide
 # =============================================================================
 
-@staff_required
+@admin_required
 def reconstruct_guide(request):
     return render(request, 'operations/reconstruct.html', {'active_nav': 'prints'})

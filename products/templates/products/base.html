@@ -35,6 +35,9 @@
                     {{ user.get_full_name|default:user.get_username }}
                 </span>
                 <a class="nav-link p-0 small" href="{% url 'products:password_change' %}">Change password</a>
+                {% if user.is_active and user.is_superuser %}
+                <a class="nav-link p-0 small" href="{% url 'operations:dashboard' %}">Operations</a>
+                {% endif %}
                 {% if user.is_staff %}
                 <a class="nav-link p-0 small" href="/admin/">Admin</a>
                 {% endif %}

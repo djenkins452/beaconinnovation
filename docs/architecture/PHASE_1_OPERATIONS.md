@@ -203,3 +203,16 @@ post correctly through their formsets.
 No public storefront, customer checkout, payment integration, printer connection,
 QR, or full costing engine. Finance behaviour, private storage, and aegis isolation
 are untouched. No reservations.
+
+---
+
+# Access & navigation update (2026-11-01)
+
+Operations is **administrator-only**. The gate (`operations/views.py` `admin_required`,
+on every view) now requires authenticated **AND `is_active` AND `is_superuser`** —
+`is_staff` alone is not enough. Anonymous users are redirected to login; regular
+users and non-admin staff get a 404 (pages, private attachments, and mutation
+endpoints alike). An admin-only "Operations" link (named URLs, existing styles,
+mobile-friendly) appears on the main website, the software-downloads portal, Finance,
+and the admin console; Operations itself has a "Beacon Home" link back. Earlier
+references in this doc to "staff-only"/`is_staff` are superseded by this rule.

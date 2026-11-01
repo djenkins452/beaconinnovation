@@ -32,6 +32,9 @@
                         <!--<li class="nav-item"><a class="nav-link" href="#portfolio">Portfolio</a></li>-->
                         <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
                         <li class="nav-item"><a class="nav-link" href="/products/">My Products</a></li>
+                        {% if user.is_authenticated and user.is_active and user.is_superuser %}
+                        <li class="nav-item"><a class="nav-link" href="{% url 'operations:dashboard' %}">Operations</a></li>
+                        {% endif %}
                     </ul>
                 </div>
             </div>

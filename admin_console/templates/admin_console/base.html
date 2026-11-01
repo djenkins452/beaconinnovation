@@ -77,6 +77,13 @@
                     </ul>
                     <hr class="bg-light">
                     <ul class="nav flex-column">
+                        {% if user.is_active and user.is_superuser %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'operations:dashboard' %}">
+                                <i class="bi-gear-wide-connected me-2"></i> Operations
+                            </a>
+                        </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link" href="/">
                                 <i class="bi-house me-2"></i> Back to Site

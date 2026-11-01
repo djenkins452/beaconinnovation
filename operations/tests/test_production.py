@@ -30,7 +30,7 @@ D = Decimal
 
 class ProductionTestBase(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user('ops', 'ops@example.com', 'pw', is_staff=True)
+        self.user = User.objects.create_user('ops', 'ops@example.com', 'pw', is_staff=True, is_superuser=True)
         self.black = Material.objects.create(
             material_type='filament', manufacturer='Bambu', product_type='PLA',
             name='Matte Black', default_unit='g', nominal_spool_weight_g=D('1000'))
