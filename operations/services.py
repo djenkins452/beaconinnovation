@@ -224,7 +224,7 @@ def enter_opening_stock(*, material, quantity, unit, actor, location=None,
 
 @transaction.atomic
 def receive_stock_line(*, line, quantity, actor, location=None, status=StockItem.STATUS_AVAILABLE,
-                       idempotency_key=None):
+                       idempotency_key=None, delivery_confirmed=True):
     """Receive ``quantity`` of a stock line into inventory. Updates the line's
     received total and emits a purchase_receipt movement. No expense."""
     if line.item_type != 'stock':
@@ -245,7 +245,8 @@ def receive_stock_line(*, line, quantity, actor, location=None, status=StockItem
 
     stock_item, _ = StockItem.objects.get_or_create(
         material=material, location=location, status=status, unit=line.unit,
-        defaults={'created_by': actor if (actor and getattr(actor, 'is_authenticated', False)) else None},
+        defaults={'delivery_confirmed': delivery_confirmed,
+                  'created_by': actor if (actor and getattr(actor, 'is_authenticated', False)) else None},
     )
     movement = post_movement(
         movement_type='purchase_receipt', stock_item=stock_item, quantity=quantity,
@@ -299,7 +300,8 @@ def receive_filament_line(*, line, spool_specs, actor, location=None, idempotenc
 def receive_filament_spool(*, line, spool_uid, actor, starting_weight_g=ZERO,
                            remaining_unknown=False, is_refill=False, status='sealed',
                            cost=None, cost_unknown=False, tare_weight_g=None,
-                           location=None, notes='', idempotency_key=None):
+                           location=None, notes='', idempotency_key=None,
+                           delivery_confirmed=True):
     """Receive ONE filament spool (or refill) from a purchase line.
 
     Idempotent by the physical spool's ``spool_uid`` — re-running returns the
@@ -321,6 +323,7 @@ def receive_filament_spool(*, line, spool_uid, actor, starting_weight_g=ZERO,
     spool = FilamentSpool.objects.create(
         material=material, spool_uid=spool_uid, starting_weight_g=starting,
         remaining_unknown=remaining_unknown, is_refill=is_refill,
+        delivery_confirmed=delivery_confirmed,
         tare_weight_g=tare_weight_g, cost=(None if cost_unknown else cost),
         cost_unknown=cost_unknown, location=location, status=status, notes=notes,
         source_line=line,
@@ -329,7 +332,8 @@ def receive_filament_spool(*, line, spool_uid, actor, starting_weight_g=ZERO,
     record_audit(
         actor, 'create', spool,
         summary=f'Spool received from purchase ({"refill" if is_refill else "spool"}'
-                f'{", grams untracked" if remaining_unknown else ""})')
+                f'{", grams untracked" if remaining_unknown else ""}'
+                f'{", delivery unconfirmed" if not delivery_confirmed else ""})')
     if starting > ZERO and not remaining_unknown:
         post_movement(
             movement_type='purchase_receipt', spool=spool, quantity=starting,
@@ -381,7 +385,7 @@ def _historical_timestamp(printed_on):
 @transaction.atomic
 def log_print(*, name, printer, purpose, outcome, notes, uses, actor,
               products=None, success_quantity=0, is_historical=False,
-              printed_on=None, submission_token=None):
+              printed_on=None, submission_token=None, date_unknown=False):
     """Record a print, deduct its filament, and add successful finished units.
 
     ``uses`` — list of dicts per spool: ``spool``, ``grams_consumed``,
@@ -408,7 +412,8 @@ def log_print(*, name, printer, purpose, outcome, notes, uses, actor,
     print_log = PrintLog.objects.create(
         name=name, printed_on=printed_on, printer=printer,
         purpose=purpose, outcome=outcome, success_quantity=success_quantity or 0,
-        is_historical=is_historical, notes=notes, submission_token=submission_token or None,
+        is_historical=is_historical, date_unknown=date_unknown,
+        notes=notes, submission_token=submission_token or None,
         created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
     )
     record_audit(actor, 'create', print_log,
@@ -464,6 +469,59 @@ def log_print(*, name, printer, purpose, outcome, notes, uses, actor,
 # =============================================================================
 # Weigh-in + reconciliation (measured vs estimated)
 # =============================================================================
+
+@transaction.atomic
+def set_spool_status(*, spool, status, actor):
+    """Change a spool's status (sealed/open/low/empty/damaged) WITHOUT requiring a
+    weight. Status is the everyday signal when grams aren't tracked."""
+    valid = {c[0] for c in FilamentSpool.STATUS_CHOICES}
+    if status not in valid:
+        raise ValidationError(f'Unknown spool status: {status}')
+    old = spool.status
+    spool.status = status
+    spool.save(update_fields=['status'])
+    record_audit(actor, 'update', spool, summary=f'Status {old} → {status}',
+                 changes={'status': [old, status]})
+    return spool
+
+
+@transaction.atomic
+def confirm_spool_delivery(*, spool, actor):
+    """Mark an ordered spool as delivered/confirmed (moves it to confirmed on-hand)."""
+    if not spool.delivery_confirmed:
+        spool.delivery_confirmed = True
+        spool.save(update_fields=['delivery_confirmed'])
+        record_audit(actor, 'update', spool, summary='Delivery confirmed')
+    return spool
+
+
+@transaction.atomic
+def confirm_stock_delivery(*, stock_item, actor):
+    if not stock_item.delivery_confirmed:
+        stock_item.delivery_confirmed = True
+        stock_item.save(update_fields=['delivery_confirmed'])
+        record_audit(actor, 'update', stock_item, summary='Delivery confirmed')
+    return stock_item
+
+
+@transaction.atomic
+def merge_locations(*, target, sources, actor):
+    """Consolidate ``sources`` locations into ``target``: repoint every spool, stock
+    item and equipment record, then remove the emptied source locations. Linked
+    records and audit history are preserved; no inventory is duplicated."""
+    from operations.models import Equipment
+    moved = {'spools': 0, 'stock': 0, 'equipment': 0}
+    for src in sources:
+        if src.pk == target.pk:
+            continue
+        moved['spools'] += FilamentSpool.objects.filter(location=src).update(location=target)
+        moved['stock'] += StockItem.objects.filter(location=src).update(location=target)
+        moved['equipment'] += Equipment.objects.filter(location=src).update(location=target)
+        record_audit(actor, 'update', target,
+                     summary=f'Merged location "{src.name}" → "{target.name}"', changes=moved)
+        src.delete()
+    return moved
+
 
 @transaction.atomic
 def weigh_spool(*, spool, gross_grams, tare_grams, actor, note='', measured_at=None):

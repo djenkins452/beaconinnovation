@@ -131,6 +131,7 @@ class Location(models.Model):
     """A physical place stock lives (shelf, bin, dry-box)."""
 
     KIND_CHOICES = [
+        ('room', 'Room / workspace'),
         ('shelf', 'Shelf'),
         ('bin', 'Bin'),
         ('drybox', 'Dry box'),
@@ -225,6 +226,33 @@ class Material(models.Model):
             return False
         return self.total_on_hand() <= self.reorder_threshold
 
+    @property
+    def has_reorder_threshold(self):
+        return self.reorder_threshold is not None
+
+    def filament_status_counts(self):
+        """Status-based inventory summary for a filament material (no grams needed).
+
+        Counts confirmed physical spools by status plus refills, and keeps
+        delivery-unconfirmed units separate so they are never shown as confirmed
+        on-hand. Returns a dict used by the Materials/dashboard screens."""
+        spools = list(self.spools.all())
+        confirmed = [s for s in spools if s.delivery_confirmed]
+        counts = {
+            'open': sum(1 for s in confirmed if s.status == 'open'),
+            'low': sum(1 for s in confirmed if s.status == 'low'),
+            'sealed': sum(1 for s in confirmed if s.status == 'sealed'),
+            'empty': sum(1 for s in confirmed if s.status == 'empty'),
+            'damaged': sum(1 for s in confirmed if s.status == 'damaged'),
+            'refills': sum(1 for s in confirmed if s.is_refill),
+            'on_spools': sum(1 for s in confirmed if not s.is_refill),
+            'total': len(confirmed),
+            'awaiting': sum(1 for s in spools if not s.delivery_confirmed),
+            # "unopened spare" = sealed and not a refill (a ready replacement).
+            'spare_unopened': sum(1 for s in confirmed if s.status == 'sealed' and not s.is_refill),
+        }
+        return counts
+
 
 # =============================================================================
 # Physical inventory units
@@ -274,6 +302,12 @@ class FilamentSpool(models.Model):
     is_refill = models.BooleanField(
         default=False,
         help_text='This is refill filament (no physical spool core), not a new spool.',
+    )
+    # Delivery confirmation is separate from "acquired". An assumed/placed order that
+    # has not been confirmed delivered is NOT counted as confirmed on-hand.
+    delivery_confirmed = models.BooleanField(
+        default=True,
+        help_text='Unticked = ordered but delivery not yet confirmed (shown separately, not as on-hand).',
     )
     tare_weight_g = models.DecimalField(
         null=True, blank=True, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
@@ -330,6 +364,10 @@ class FilamentSpool(models.Model):
         return not self.remaining_unknown
 
     @property
+    def awaiting_confirmation(self):
+        return not self.delivery_confirmed
+
+    @property
     def remaining_display(self):
         """Human label for remaining filament. When grams aren't tracked, show the
         status word ("Unknown" is deliberately NOT 0 g and NOT a full spool)."""
@@ -368,6 +406,10 @@ class StockItem(models.Model):
     )
     unit = models.CharField(max_length=10, choices=UnitChoices.choices, default=UnitChoices.EACH)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_AVAILABLE, db_index=True)
+    delivery_confirmed = models.BooleanField(
+        default=True,
+        help_text='Unticked = ordered but delivery not yet confirmed (shown separately, not as on-hand).',
+    )
     notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
@@ -392,6 +434,10 @@ class StockItem(models.Model):
     def on_hand(self):
         total = self.movements.aggregate(t=Sum('quantity'))['t']
         return total if total is not None else ZERO
+
+    @property
+    def awaiting_confirmation(self):
+        return not self.delivery_confirmed
 
 
 class Equipment(models.Model):
@@ -458,6 +504,14 @@ class Purchase(models.Model):
     )
     order_date = models.DateField(default=timezone.localdate)
     order_number = models.CharField(max_length=120, blank=True, default='')
+    # How the purchase was funded. Deliberately NOT a finance expense, owner
+    # contribution, loan, reimbursement, or tax decision — just how it was paid, by
+    # the owner's confirmation. Those accounting classifications remain undecided.
+    FUNDING_CHOICES = [
+        ('', 'Not specified'),
+        ('personal', 'Paid personally'),
+    ]
+    funding = models.CharField(max_length=20, blank=True, default='', choices=FUNDING_CHOICES)
     product_links = models.TextField(blank=True, default='', help_text='One product URL per line (optional).')
     # Order-level charges. Kept separate from line costs; no accounting policy imposed.
     shipping_total = models.DecimalField(default=ZERO, **MONEY_DECIMALS)
@@ -482,6 +536,10 @@ class Purchase(models.Model):
         if self.supplier:
             return self.supplier.name
         return self.supplier_name or 'Unknown supplier'
+
+    @property
+    def funding_label(self):
+        return dict(self.FUNDING_CHOICES).get(self.funding, '')
 
     def lines_subtotal(self):
         return sum((line.line_total for line in self.lines.all()), ZERO)
@@ -543,6 +601,15 @@ class PurchaseLine(models.Model):
         validators=[MinValueValidator(ZERO), MaxValueValidator(Decimal('100'))],
         help_text='Percent of this line that is business use (100 for business, 0 for personal, in between for shared).',
     )
+    DELIVERY_CHOICES = [
+        ('received', 'Received'),
+        ('unconfirmed', 'Delivery unconfirmed'),
+        ('outstanding', 'Not received'),
+    ]
+    delivery = models.CharField(
+        max_length=12, blank=True, default='',
+        help_text="Explicit delivery state. Blank = derive from what's received.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -568,6 +635,23 @@ class PurchaseLine(models.Model):
         if self.quantity_received >= self.quantity_ordered:
             return 'received'
         return 'partial'
+
+    @property
+    def delivery_state(self):
+        """Explicit delivery state when set, otherwise derived from receiving.
+
+        received = confirmed on-hand; unconfirmed = ordered, delivery not confirmed;
+        outstanding = not received yet (arriving / pickup pending)."""
+        if self.delivery:
+            return self.delivery
+        rs = self.receipt_state
+        if rs in ('received', 'partial'):
+            return 'received'
+        return 'outstanding'
+
+    @property
+    def delivery_label(self):
+        return dict(self.DELIVERY_CHOICES).get(self.delivery_state, 'Not received')
 
     def clean(self):
         super().clean()
@@ -799,6 +883,10 @@ class PrintLog(models.Model):
         default=False,
         help_text='Recorded after the fact while reconstructing history (back-dated).',
     )
+    date_unknown = models.BooleanField(
+        default=False,
+        help_text='The actual print date is unknown; printed_on holds only the record/import date.',
+    )
     notes = models.TextField(blank=True, default='')
     # Idempotency for the whole print submission.
     submission_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
@@ -812,6 +900,24 @@ class PrintLog(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.printed_on}, {self.get_outcome_display()})'
+
+    @property
+    def material_tracked(self):
+        """True when any filament usage was recorded for this print. When False the
+        screens show 'Not tracked' instead of a misleading 0 g."""
+        return self.material_uses.exists()
+
+    @property
+    def in_progress(self):
+        return self.outcome == 'in_progress'
+
+    @property
+    def date_display(self):
+        """Honest date: the real print date when known, else a clear label — never a
+        fake date. The record/import timestamp lives in created_at (audit)."""
+        if self.date_unknown:
+            return 'Date unknown (historical)'
+        return self.printed_on
 
     @property
     def total_consumed_g(self):

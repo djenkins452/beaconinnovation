@@ -39,6 +39,19 @@ class StyledForm(forms.Form):
         _style(self)
 
 
+def _collapse_single_location(form):
+    """When only one active location exists, default to it and hide the selector so
+    routine forms stay simple. The field reappears automatically once a second
+    location is added."""
+    if 'location' not in form.fields:
+        return
+    locs = list(Location.objects.filter(is_active=True))
+    if len(locs) == 1:
+        form.fields['location'].initial = locs[0]
+        form.fields['location'].required = False
+        form.fields['location'].widget = forms.HiddenInput()
+
+
 # --------------------------------------------------------------------- reference
 class SupplierForm(StyledModelForm):
     class Meta:
@@ -99,6 +112,10 @@ class OpeningSpoolForm(StyledForm):
     status = forms.ChoiceField(choices=FilamentSpool.STATUS_CHOICES, initial='open')
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _collapse_single_location(self)
+
     def clean(self):
         cleaned = super().clean()
         if not cleaned.get('remaining_unknown') and cleaned.get('starting_weight_g') in (None, ''):
@@ -116,6 +133,10 @@ class OpeningStockForm(StyledForm):
     location = forms.ModelChoiceField(queryset=Location.objects.filter(is_active=True), required=False)
     status = forms.ChoiceField(choices=StockItem.STATUS_CHOICES, initial=StockItem.STATUS_AVAILABLE)
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _collapse_single_location(self)
 
 
 # --------------------------------------------------------------------- purchasing
@@ -167,6 +188,10 @@ class ReceiveStockForm(StyledForm):
     location = forms.ModelChoiceField(queryset=Location.objects.filter(is_active=True), required=False)
     status = forms.ChoiceField(choices=StockItem.STATUS_CHOICES, initial=StockItem.STATUS_AVAILABLE)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _collapse_single_location(self)
+
 
 class ReceiveFilamentForm(StyledForm):
     """Receive filament by creating one or more individual spools."""
@@ -179,6 +204,10 @@ class ReceiveFilamentForm(StyledForm):
     location = forms.ModelChoiceField(queryset=Location.objects.filter(is_active=True), required=False)
     status = forms.ChoiceField(choices=FilamentSpool.STATUS_CHOICES, initial='sealed')
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _collapse_single_location(self)
+
 
 class ReceiveEquipmentForm(StyledForm):
     name = forms.CharField(max_length=160)
@@ -189,6 +218,10 @@ class ReceiveEquipmentForm(StyledForm):
     cost = forms.DecimalField(required=False, min_value=Decimal('0'))
     acquired_date = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}))
     location = forms.ModelChoiceField(queryset=Location.objects.filter(is_active=True), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _collapse_single_location(self)
 
 
 class LinkPaymentForm(StyledForm):

@@ -5,13 +5,15 @@
   <a href="{% if nonzero %}?{% else %}?nonzero=1{% endif %}" class="btn btn-secondary btn-sm">
     {% if nonzero %}Show all{% else %}Only in stock{% endif %}</a></div>
 <div class="card">
-  <p class="help mb-2">Finished units = Σ(production output − fulfillment). Prints add good units; internal orders remove them.</p>
+  <p class="help mb-2">“Available to fulfill” is what is on hand and not yet assigned to an internal order. A zero here is normal for items you printed and already kept for your own use — you still own them; see “Produced” and “Kept / used”.</p>
   {% if rows %}
   <table>
-    <tr><th>Product / variant</th><th class="text-right">On hand</th></tr>
+    <tr><th>Product / variant</th><th class="text-right">Produced</th><th class="text-right">Kept / used (internal)</th><th class="text-right">Available to fulfill</th></tr>
     {% for r in rows %}
     <tr><td><a href="{% url 'operations:product_detail' r.v.product_id %}">{{ r.v }}</a></td>
-        <td class="text-right">{{ r.on_hand }}</td></tr>
+        <td class="text-right">{{ r.produced }}</td>
+        <td class="text-right">{{ r.used }}</td>
+        <td class="text-right">{{ r.available }}</td></tr>
     {% endfor %}
   </table>
   {% else %}<p class="text-muted">No finished goods yet.</p>{% endif %}

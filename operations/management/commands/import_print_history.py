@@ -179,6 +179,7 @@ class Command(BaseCommand):
                 defaults={'order_date': to_date(p['order_date']), 'tax_total': D(p.get('tax_total', 0)),
                           'shipping_total': D(p.get('shipping_total', 0)),
                           'discount_total': D(p.get('discount_total', 0)),
+                          'funding': p.get('funding', ''),
                           'product_links': p.get('product_links', ''), 'notes': p.get('notes', ''),
                           'created_by': actor})
             if created:
@@ -210,7 +211,8 @@ class Command(BaseCommand):
                     defaults={'item_type': ln['item_type'], 'material': material,
                               'quantity_ordered': D(ln.get('quantity', 1)), 'unit': ln.get('unit', 'each'),
                               'unit_cost': D(ln.get('unit_cost', 0)), 'line_discount': D(ln.get('line_discount', 0)),
-                              'line_tax': D(ln.get('line_tax', 0)), 'use_type': ln.get('use_type', 'business')})
+                              'line_tax': D(ln.get('line_tax', 0)), 'use_type': ln.get('use_type', 'business'),
+                              'delivery': ln.get('delivery', '')})
 
                 if not ln.get('received'):
                     continue  # outstanding — recorded as a line, no inventory
@@ -226,6 +228,7 @@ class Command(BaseCommand):
                             cost=(None if spec.get('cost') is None else D(spec.get('cost'))),
                             cost_unknown=spec.get('cost_unknown', False), location=loc,
                             notes=spec.get('notes', ''),
+                            delivery_confirmed=spec.get('delivery_confirmed', True),
                             idempotency_key=f'{tag}:{p["order_number"]}:{idx}:sp{si}')
                 elif ln['item_type'] == 'equipment':
                     if not m.Equipment.objects.filter(source_line=line).exists():
@@ -240,6 +243,7 @@ class Command(BaseCommand):
                     if ln.get('track_inventory', True):
                         services.receive_stock_line(
                             line=line, quantity=D(ln.get('quantity', 1)), actor=actor, location=loc,
+                            delivery_confirmed=ln.get('delivery_confirmed', True),
                             idempotency_key=f'{tag}:{p["order_number"]}:{idx}:recv')
 
         # --- Products + variants ---
@@ -268,6 +272,7 @@ class Command(BaseCommand):
                 name=pr['name'], printer=printer, purpose=pr.get('purpose', 'business'),
                 outcome=pr.get('outcome', 'success'), notes=pr.get('notes', ''), uses=[],
                 actor=actor, products=products, is_historical=pr.get('is_historical', False),
+                date_unknown=pr.get('date_unknown', False),
                 printed_on=to_date(pr.get('printed_on')), submission_token=pr['token'])
 
         # --- Internal orders (idempotent on fulfillment_token; no payment) ---

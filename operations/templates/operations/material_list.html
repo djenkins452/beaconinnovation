@@ -14,17 +14,31 @@
 <div class="card">
   {% if rows %}
   <table>
-    <tr><th>Material</th><th>Type</th><th>SKU</th><th class="text-right">On hand</th><th>Reorder</th></tr>
+    <tr><th>Material</th><th>Type</th><th>SKU</th><th>On hand</th><th>Reorder at</th></tr>
     {% for r in rows %}
     <tr>
       <td><a href="{% url 'operations:material_detail' r.m.id %}">{{ r.m }}</a>{% if r.low %} <span class="badge badge-red">Low</span>{% endif %}</td>
       <td>{{ r.m.get_material_type_display }}</td>
       <td>{{ r.m.sku|default:"—" }}</td>
-      <td class="text-right">{{ r.on_hand }}{% if r.m.is_filament %} g{% else %} {{ r.m.default_unit }}{% endif %}</td>
+      <td>
+        {% if r.counts %}
+          {% if r.counts.total %}
+            {% if r.counts.open %}<span class="badge badge-green">{{ r.counts.open }} open</span> {% endif %}
+            {% if r.counts.low %}<span class="badge badge-amber">{{ r.counts.low }} low</span> {% endif %}
+            {% if r.counts.sealed %}<span class="badge badge-blue">{{ r.counts.sealed }} unopened</span> {% endif %}
+            {% if r.counts.empty %}<span class="badge badge-grey">{{ r.counts.empty }} empty</span> {% endif %}
+            {% if r.counts.refills %}<span class="help">({{ r.counts.refills }} refill{{ r.counts.refills|pluralize }})</span>{% endif %}
+          {% else %}<span class="text-muted">none on hand</span>{% endif %}
+          {% if r.counts.awaiting %} <span class="badge badge-amber">+{{ r.counts.awaiting }} awaiting delivery</span>{% endif %}
+        {% else %}
+          {{ r.on_hand|floatformat:"-3" }} {{ r.m.default_unit }}
+        {% endif %}
+      </td>
       <td>{{ r.m.reorder_threshold|default:"—" }}</td>
     </tr>
     {% endfor %}
   </table>
+  <p class="help mt-2">Filament is tracked by status (open / low / unopened / empty), not by grams. Counts are physical spools; refills are filament without a physical spool core.</p>
   {% else %}<p class="text-muted">No materials yet. Create one, then add spools/stock against it.</p>{% endif %}
 </div>
 {% endblock %}

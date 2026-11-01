@@ -7,6 +7,7 @@ Every view is gated by :func:`admin_required` (authenticated **and** ``is_active
 are always honoured.
 """
 import uuid
+from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
@@ -57,21 +58,51 @@ def admin_required(view):
 
 @admin_required
 def dashboard(request):
+    from django.db.models import Sum
     materials = list(Material.objects.filter(is_active=True))
-    low_stock = [m for m in materials if m.is_low_stock]
-    spools = FilamentSpool.objects.exclude(status='empty').select_related('material')[:12]
-    recent_movements = (InventoryMovement.objects.select_related('spool', 'stock_item')
-                        .order_by('-created_at')[:10])
-    recent_prints = PrintLog.objects.select_related('printer')[:5]
+
+    # 1) What do I own (confirmed on-hand only).
+    owned = {
+        'equipment': Equipment.objects.filter(status='active').count(),
+        'stock_items': StockItem.objects.filter(status=StockItem.STATUS_AVAILABLE,
+                                                delivery_confirmed=True).count(),
+        'spools': FilamentSpool.objects.filter(delivery_confirmed=True).exclude(status='empty').count(),
+    }
+    produced = (InventoryMovement.objects.filter(movement_type='production_output')
+                .aggregate(t=Sum('quantity'))['t'] or 0)
+    owned['produced'] = int(produced)
+
+    # Purchase summary — recorded total only (not profit / deductible / cash outflow).
+    purchase_total = sum((p.order_total() for p in Purchase.objects.all()), Decimal('0'))
+
+    # 2) What is arriving / awaiting delivery confirmation.
+    outstanding_lines = [ln for ln in PurchaseLine.objects.select_related('purchase', 'purchase__supplier')
+                         if ln.delivery_state == 'outstanding']
+    awaiting_lines = [ln for ln in PurchaseLine.objects.select_related('purchase', 'purchase__supplier')
+                      if ln.delivery_state == 'unconfirmed']
+
+    # 3) Filament by colour/status; low spools vs spare stock; only real reorder flags.
+    filament_rows = []
+    for mat in [m for m in materials if m.is_filament]:
+        counts = mat.filament_status_counts()
+        if counts['total'] or counts['awaiting']:
+            filament_rows.append({'m': mat, 'c': counts})
+    low_spools = (FilamentSpool.objects.filter(status='low', delivery_confirmed=True)
+                  .select_related('material'))
+    reorder_materials = [m for m in materials if m.has_reorder_threshold and m.is_low_stock]
+    any_thresholds = any(m.has_reorder_threshold for m in materials)
+
+    # 4) What have I printed / what is in progress.
+    in_progress_prints = PrintLog.objects.filter(outcome='in_progress').select_related('printer')
+    recent_prints = PrintLog.objects.exclude(outcome='in_progress').select_related('printer')[:6]
+
     ctx = {
         'active_nav': 'dashboard',
-        'low_stock': low_stock,
-        'spool_count': FilamentSpool.objects.exclude(status='empty').count(),
-        'material_count': len(materials),
-        'open_purchases': Purchase.objects.count(),
-        'spools': spools,
-        'recent_movements': recent_movements,
-        'recent_prints': recent_prints,
+        'owned': owned, 'purchase_total': purchase_total, 'purchase_count': Purchase.objects.count(),
+        'outstanding_lines': outstanding_lines, 'awaiting_lines': awaiting_lines,
+        'filament_rows': filament_rows, 'low_spools': low_spools,
+        'reorder_materials': reorder_materials, 'any_thresholds': any_thresholds,
+        'in_progress_prints': in_progress_prints, 'recent_prints': recent_prints,
     }
     return render(request, 'operations/dashboard.html', ctx)
 
@@ -131,7 +162,14 @@ def material_list(request):
     if mtype:
         qs = qs.filter(material_type=mtype)
     materials = list(qs)
-    rows = [{'m': m, 'on_hand': m.total_on_hand(), 'low': m.is_low_stock} for m in materials]
+    rows = []
+    for m in materials:
+        rows.append({
+            'm': m,
+            'on_hand': m.total_on_hand(),
+            'low': m.is_low_stock,
+            'counts': m.filament_status_counts() if m.is_filament else None,
+        })
     return render(request, 'operations/material_list.html',
                   {'active_nav': 'materials', 'rows': rows, 'type_filter': mtype,
                    'type_choices': Material.MATERIAL_TYPE_CHOICES})
@@ -174,6 +212,10 @@ def spool_list(request):
     status = request.GET.get('status', '')
     if status:
         spools = spools.filter(status=status)
+    # Open/low first, then sealed spare stock, then empty/damaged. Awaiting-delivery last.
+    order = {'open': 0, 'low': 1, 'sealed': 2, 'damaged': 3, 'empty': 4}
+    spools = sorted(spools, key=lambda s: (not s.delivery_confirmed, order.get(s.status, 9),
+                                           s.material.name, s.spool_uid))
     rows = [{'s': s, 'est': s.estimated_remaining_g, 'measured': s.measured_remaining_g,
              'variance': s.variance_g} for s in spools]
     return render(request, 'operations/spool_list.html',
@@ -189,11 +231,44 @@ def spool_detail(request, spool_id):
         'active_nav': 'spools', 'spool': spool,
         'est': spool.estimated_remaining_g, 'measured': spool.measured_remaining_g,
         'variance': spool.variance_g,
+        'status_choices': FilamentSpool.STATUS_CHOICES,
         'movements': spool.movements.select_related('actor').all(),
         'measurements': spool.measurements.all(),
         'weigh_form': weigh_form,
     }
     return render(request, 'operations/spool_detail.html', ctx)
+
+
+@admin_required
+def spool_set_status(request, spool_id):
+    """Change a spool's status (open/low/empty/…) without weighing it."""
+    spool = get_object_or_404(FilamentSpool, pk=spool_id)
+    if request.method == 'POST':
+        status = request.POST.get('status', '')
+        try:
+            services.set_spool_status(spool=spool, status=status, actor=request.user)
+            messages.success(request, f'{spool.spool_uid} marked {spool.get_status_display()}.')
+        except Exception as e:
+            messages.error(request, f'Could not change status: {e}')
+    return redirect('operations:spool_detail', spool_id=spool.id)
+
+
+@admin_required
+def spool_confirm_delivery(request, spool_id):
+    spool = get_object_or_404(FilamentSpool, pk=spool_id)
+    if request.method == 'POST':
+        services.confirm_spool_delivery(spool=spool, actor=request.user)
+        messages.success(request, f'{spool.spool_uid}: delivery confirmed — now counted as on hand.')
+    return redirect('operations:spool_detail', spool_id=spool.id)
+
+
+@admin_required
+def stock_confirm_delivery(request, stock_id):
+    item = get_object_or_404(StockItem, pk=stock_id)
+    if request.method == 'POST':
+        services.confirm_stock_delivery(stock_item=item, actor=request.user)
+        messages.success(request, f'{item.material}: delivery confirmed.')
+    return redirect('operations:stock_list')
 
 
 @admin_required
@@ -237,8 +312,12 @@ def measurement_reconcile(request, measurement_id):
 @admin_required
 def stock_list(request):
     items = StockItem.objects.select_related('material', 'location').all()
-    rows = [{'i': i, 'on_hand': i.on_hand} for i in items]
-    return render(request, 'operations/stock_list.html', {'active_nav': 'stock', 'rows': rows})
+    confirmed, awaiting = [], []
+    for i in items:
+        row = {'i': i, 'on_hand': i.on_hand}
+        (awaiting if i.awaiting_confirmation else confirmed).append(row)
+    return render(request, 'operations/stock_list.html',
+                  {'active_nav': 'stock', 'confirmed': confirmed, 'awaiting': awaiting})
 
 
 @admin_required
@@ -291,9 +370,9 @@ def opening_spool(request):
         except Exception as e:
             messages.error(request, f'Could not add spool: {e}')
     return render(request, 'operations/generic_form.html',
-                  {'active_nav': 'opening', 'form': form, 'title': 'Opening inventory — filament spool',
-                   'intro': 'Enter a spool you already own. This creates stock via an opening-balance '
-                            'movement and does NOT create a finance expense.',
+                  {'active_nav': 'opening', 'form': form, 'title': 'Add a filament spool you own',
+                   'intro': 'Grams are optional — leave “remaining unknown” ticked to track this spool by '
+                            'status only (sealed / open / low / empty). Adding it does not create a finance expense.',
                    'cancel_url': reverse('operations:opening_index')})
 
 
@@ -325,10 +404,11 @@ def opening_stock(request):
 @admin_required
 def purchase_list(request):
     purchases = Purchase.objects.select_related('supplier').prefetch_related('lines', 'payments').all()
+    total_recorded = sum((p.order_total() for p in purchases), Decimal('0'))
     paginator = Paginator(purchases, 25)
     page = paginator.get_page(request.GET.get('page'))
     return render(request, 'operations/purchase_list.html',
-                  {'active_nav': 'purchases', 'page': page})
+                  {'active_nav': 'purchases', 'page': page, 'total_recorded': total_recorded})
 
 
 @admin_required
@@ -766,9 +846,18 @@ def recipe_create(request, variant_id):
 
 @admin_required
 def finished_goods(request):
+    from django.db.models import Sum
     variants = ProductVariant.objects.select_related('product').all()
-    rows = [{'v': v, 'on_hand': v.on_hand} for v in variants]
-    rows = [r for r in rows if r['on_hand'] != 0] if request.GET.get('nonzero') else rows
+    rows = []
+    for v in variants:
+        produced = (v.movements.filter(movement_type='production_output')
+                    .aggregate(t=Sum('quantity'))['t'] or 0)
+        used = (v.movements.filter(movement_type='fulfillment')
+                .aggregate(t=Sum('quantity'))['t'] or 0)
+        rows.append({'v': v, 'available': v.on_hand,
+                     'produced': int(produced), 'used': int(abs(used))})
+    if request.GET.get('nonzero'):
+        rows = [r for r in rows if r['available'] != 0]
     return render(request, 'operations/finished_goods.html',
                   {'active_nav': 'finished', 'rows': rows, 'nonzero': request.GET.get('nonzero')})
 

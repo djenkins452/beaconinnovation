@@ -2,17 +2,18 @@
 {% block title %}Purchase {{ purchase.order_number }}{% endblock %}
 {% block content %}
 <div class="row-split">
-  <h1>{{ purchase.supplier_display }}{% if purchase.order_number %} — #{{ purchase.order_number }}{% endif %}</h1>
+  <h1>{{ purchase.supplier_display }}{% if purchase.order_number %} — #{{ purchase.order_number }}{% endif %}
+      {% if purchase.funding_label %}<span class="badge badge-grey">{{ purchase.funding_label }}</span>{% endif %}</h1>
   <a href="{% url 'operations:purchase_list' %}" class="btn btn-secondary btn-sm">← Purchases</a>
 </div>
 
 <div class="card">
   <p><strong>Order date:</strong> {{ purchase.order_date }}
-     &nbsp; <strong>Lines subtotal:</strong> ${{ purchase.lines_subtotal }}
-     &nbsp; <strong>+ shipping</strong> ${{ purchase.shipping_total }}
-     &nbsp; <strong>+ tax</strong> ${{ purchase.tax_total }}
-     &nbsp; <strong>− discount</strong> ${{ purchase.discount_total }}
-     &nbsp; = <strong>Total ${{ purchase.order_total }}</strong></p>
+     &nbsp; <strong>Lines subtotal:</strong> ${{ purchase.lines_subtotal|floatformat:2 }}
+     &nbsp; <strong>+ shipping</strong> ${{ purchase.shipping_total|floatformat:2 }}
+     &nbsp; <strong>+ tax</strong> ${{ purchase.tax_total|floatformat:2 }}
+     &nbsp; <strong>− discount</strong> ${{ purchase.discount_total|floatformat:2 }}
+     &nbsp; = <strong>Total ${{ purchase.order_total|floatformat:2 }}</strong></p>
   {% if purchase.product_links %}<p class="help">Links:<br>{{ purchase.product_links|linebreaksbr }}</p>{% endif %}
   {% if purchase.notes %}<p class="text-muted">{{ purchase.notes }}</p>{% endif %}
 </div>
@@ -21,19 +22,19 @@
   <h2>Lines</h2>
   {% if lines %}
   <table>
-    <tr><th>Item</th><th>Type</th><th>Use</th><th class="text-right">Ordered</th><th class="text-right">Received</th>
+    <tr><th>Item</th><th>Type</th><th>Use</th><th class="text-right">Ordered</th><th>Delivery</th>
         <th class="text-right">Unit cost</th><th class="text-right">Line total</th><th>Receive</th></tr>
     {% for line in lines %}
     <tr>
       <td>{{ line.description }}{% if line.material %}<br><span class="help">{{ line.material }}</span>{% endif %}</td>
       <td>{{ line.get_item_type_display }}</td>
       <td>{{ line.get_use_type_display }}{% if line.use_type == 'shared' %} ({{ line.business_pct }}%){% endif %}</td>
-      <td class="text-right">{{ line.quantity_ordered }} {{ line.unit }}</td>
-      <td class="text-right">{{ line.quantity_received }}
-        {% if line.receipt_state == 'received' %}<span class="badge badge-green">✓</span>
-        {% elif line.receipt_state == 'partial' %}<span class="badge badge-amber">partial</span>{% endif %}</td>
-      <td class="text-right">${{ line.unit_cost }}</td>
-      <td class="text-right">${{ line.line_total }}</td>
+      <td class="text-right">{{ line.quantity_ordered|floatformat:"-3" }} {{ line.unit }}</td>
+      <td>{% if line.delivery_state == 'received' %}<span class="badge badge-green">Received</span>
+          {% elif line.delivery_state == 'unconfirmed' %}<span class="badge badge-amber">Unconfirmed</span>
+          {% else %}<span class="badge badge-grey">Not received</span>{% endif %}</td>
+      <td class="text-right">${{ line.unit_cost|floatformat:2 }}</td>
+      <td class="text-right">${{ line.line_total|floatformat:2 }}</td>
       <td>{% if line.item_type != 'other' and line.receipt_state != 'received' %}
             <a href="{% url 'operations:line_receive' line.id %}" class="btn btn-primary btn-sm">Receive</a>
           {% elif line.item_type == 'other' %}<span class="text-muted">n/a</span>
@@ -57,8 +58,15 @@
 </div>
 
 <div class="card">
-  <h2>Payments (finance link)</h2>
-  <p class="help mb-2">Linking a purchase to its finance expense is <strong>manual</strong> — receiving materials never
+  <h2>Payment &amp; funding</h2>
+  {% if purchase.funding == 'personal' %}
+  <p class="mb-2"><span class="badge badge-grey">Paid personally</span>
+     — funded personally (by your confirmation). This is not recorded as a Finance expense, owner contribution,
+     loan, reimbursement, or tax deduction; those remain undecided. Exact payment date is not recorded.</p>
+  {% endif %}
+  <details>
+    <summary style="cursor:pointer;" class="help">Optionally link this purchase to a Finance expense later</summary>
+    <p class="help mt-2 mb-2">Linking to a Finance expense is <strong>manual</strong> and optional — receiving materials never
      creates an expense. A purchase can have zero, one, or several payments.</p>
   {% if payments %}
   <table>
@@ -94,6 +102,7 @@
       </form>
     </div>
   </div>
+  </details>
 </div>
 
 <div class="card">

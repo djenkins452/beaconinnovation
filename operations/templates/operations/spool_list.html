@@ -21,7 +21,7 @@
       <td><a href="{% url 'operations:spool_detail' r.s.id %}">{{ r.s.spool_uid }}</a></td>
       <td>{{ r.s.material }}</td>
       <td>{% if r.s.is_refill %}<span class="badge">Refill</span>{% else %}Spool{% endif %}</td>
-      <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span></td>
+      <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span>{% if r.s.awaiting_confirmation %} <span class="badge badge-amber">Awaiting delivery</span>{% endif %}</td>
       <td>{{ r.s.location|default:"—" }}</td>
       <td class="text-right">{% if r.s.remaining_unknown %}<span class="text-muted">{{ r.s.remaining_display }}</span>{% else %}{{ r.est }} g{% endif %}</td>
       <td class="text-right">{% if r.measured is not None %}{{ r.measured }} g{% else %}<span class="text-muted">—</span>{% endif %}</td>

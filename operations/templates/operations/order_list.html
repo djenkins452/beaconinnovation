@@ -3,7 +3,7 @@
 {% block content %}
 <div class="row-split"><h1>Internal orders</h1><a href="{% url 'operations:order_create' %}" class="btn btn-primary">New internal order</a></div>
 <div class="card">
-  <p class="help mb-2">Staff-only, <strong>no payment</strong>. Fulfillment removes finished units — never filament.
+  <p class="help mb-2"><strong>No payment required.</strong> Fulfilling an order marks finished items as taken for internal use.
     Kept entirely separate from any customer sales/revenue.</p>
   {% if page.object_list %}
   <table>

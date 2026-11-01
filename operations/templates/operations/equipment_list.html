@@ -3,7 +3,7 @@
 {% block content %}
 <div class="row-split"><h1>Equipment</h1><a href="{% url 'operations:equipment_create' %}" class="btn btn-primary">New equipment</a></div>
 <div class="card">
-  <p class="help mb-2">Printers and tools are assets, tracked separately from consumable stock. Receiving equipment never touches the inventory ledger.</p>
+  <p class="help mb-2">Printers, tools and room fixtures you own — tracked separately from consumable supplies.</p>
   {% if equipment %}
   <table>
     <tr><th>Name</th><th>Type</th><th>Make / model</th><th>Status</th><th>Location</th></tr>

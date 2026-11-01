@@ -736,6 +736,41 @@ This file tracks all changes made by Claude Code during development.
   orders + the cancelled anchor. Magnetic-toolbox-labels .3mf attached but not in the
   stated printed history → not imported as production (flagged).
 
+---
+
+## 2026-11-01 (later)
+
+### Operations — post-import corrections + daily-use simplification
+- Display fixes: in-progress prints now render "In progress" everywhere (list, detail,
+  dashboard) instead of "Failed"; untracked filament shows "Not tracked" (not 0 g);
+  historical prints show "Date unknown" instead of the import date; filament shows
+  status counts (open/low/unopened/refill) instead of "0 g" on Materials + dashboard;
+  spools ordered open/low before sealed; currency 2dp; order numbers linkable;
+  "staff-only" → plain wording; ledger formulas removed from everyday pages.
+- Model (migrations 0004/0005): `FilamentSpool.delivery_confirmed`, `StockItem.delivery_confirmed`,
+  `PurchaseLine.delivery`, `PrintLog.date_unknown`, `Purchase.funding`, Location `room` kind;
+  helpers `Material.filament_status_counts`, `PrintLog.date_display/material_tracked/in_progress`,
+  `*.awaiting_confirmation`, `PurchaseLine.delivery_state`, `Purchase.funding_label`.
+- Services: `set_spool_status` (status change, no weighing), `confirm_spool_delivery` /
+  `confirm_stock_delivery`, `merge_locations`; `receive_*`/`log_print` gained
+  `delivery_confirmed` / `date_unknown`. New views + routes for status/confirm actions.
+  Opening-spool form: grams optional; location selector hidden when one location exists.
+- Dashboard rebuilt to answer: what I own / what's arriving & awaiting confirmation /
+  what's low + spare / what I've printed & in progress. Purchase summary shows recorded
+  total only (not profit/deductible/cash).
+- Data corrections (command `correct_operations`, idempotent + marker-guarded, audited;
+  applied to prod after backup): consolidated 2 locations → "Home Office / Print Room";
+  Benchy recorded as 1 produced + 1 no-payment internal fulfillment (kept item); cable
+  ties received (glue stick stays outstanding); Bambu order 2 + TESSAN marked delivery
+  UNCONFIRMED (no delivery evidence); historical prints marked date-unknown; all 21
+  purchases labelled "Paid personally" (no Finance expense / owner-contribution / loan /
+  deduction implied). Importer + private JSON updated so a fresh run yields the corrected
+  state; re-runs overwrite nothing.
+- Reconciled purchase total unchanged: **$3,439.23** (21 purchases). Finance still 0
+  transactions. Access unchanged (active-superuser only). Tests: operations suite 51 pass
+  on PostgreSQL (test_corrections added). Torch "duplicate" investigated — single record,
+  one purchase link; no duplicate exists.
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 

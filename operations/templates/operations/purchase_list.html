@@ -3,22 +3,26 @@
 {% block content %}
 <div class="row-split"><h1>Purchases</h1><a href="{% url 'operations:purchase_create' %}" class="btn btn-primary">Record a purchase</a></div>
 <div class="card">
+  {% if total_recorded is not None %}
+  <p class="mb-2">{{ page.paginator.count }} purchase{{ page.paginator.count|pluralize }} · total recorded cost <strong>${{ total_recorded|floatformat:2 }}</strong>
+     <span class="help">(recorded acquisition cost only — not profit, tax deduction, or verified cash paid)</span></p>
+  {% endif %}
   {% if page.object_list %}
   <table>
-    <tr><th>Date</th><th>Supplier</th><th>Order #</th><th class="text-right">Total</th><th>Receiving</th><th>Payments</th></tr>
+    <tr><th>Date</th><th>Supplier</th><th>Order #</th><th class="text-right">Total</th><th>Receiving</th><th>Funding</th></tr>
     {% for p in page.object_list %}
     <tr>
       <td>{{ p.order_date }}</td>
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.supplier_display }}</a></td>
-      <td>{{ p.order_number|default:"—" }}</td>
-      <td class="text-right">${{ p.order_total }}</td>
+      <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.order_number|default:"—" }}</a></td>
+      <td class="text-right">${{ p.order_total|floatformat:2 }}</td>
       <td>
         {% if p.receipt_status == 'received' %}<span class="badge badge-green">Received</span>
         {% elif p.receipt_status == 'partial' %}<span class="badge badge-amber">Partial</span>
         {% elif p.receipt_status == 'none' %}<span class="badge badge-grey">Not received</span>
         {% else %}<span class="badge badge-grey">No lines</span>{% endif %}
       </td>
-      <td>{% if p.payments.all %}<span class="badge badge-blue">${{ p.linked_payment_total }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td>{% if p.funding_label %}<span class="badge badge-grey">{{ p.funding_label }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

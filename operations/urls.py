@@ -22,11 +22,14 @@ urlpatterns = [
     # Spools + weigh-in / reconcile
     path('spools/', views.spool_list, name='spool_list'),
     path('spools/<uuid:spool_id>/', views.spool_detail, name='spool_detail'),
+    path('spools/<uuid:spool_id>/status/', views.spool_set_status, name='spool_set_status'),
+    path('spools/<uuid:spool_id>/confirm-delivery/', views.spool_confirm_delivery, name='spool_confirm_delivery'),
     path('spools/<uuid:spool_id>/weigh/', views.spool_weigh, name='spool_weigh'),
     path('measurements/<uuid:measurement_id>/reconcile/', views.measurement_reconcile, name='measurement_reconcile'),
 
     # Stock + equipment
     path('stock/', views.stock_list, name='stock_list'),
+    path('stock/<uuid:stock_id>/confirm-delivery/', views.stock_confirm_delivery, name='stock_confirm_delivery'),
     path('equipment/', views.equipment_list, name='equipment_list'),
     path('equipment/new/', views.equipment_create, name='equipment_create'),
 

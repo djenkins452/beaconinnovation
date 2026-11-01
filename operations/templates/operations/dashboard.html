@@ -7,66 +7,108 @@
     <a href="{% url 'operations:purchase_create' %}" class="btn btn-primary">Record purchase</a>
     <a href="{% url 'operations:print_create' %}" class="btn btn-primary">Log print</a>
     <a href="{% url 'operations:product_create' %}" class="btn btn-secondary">New product</a>
-    <a href="{% url 'operations:reconstruct_guide' %}" class="btn btn-secondary">Reconstruct history</a>
   </div>
 </div>
 
+<!-- 1) What do I own -->
 <div class="grid mt-2">
-  <div class="stat"><div class="n">{{ spool_count }}</div><div class="l">Active spools</div></div>
-  <div class="stat"><div class="n">{{ material_count }}</div><div class="l">Materials tracked</div></div>
-  <div class="stat"><div class="n">{{ open_purchases }}</div><div class="l">Purchases</div></div>
-  <div class="stat"><div class="n" style="color:{% if low_stock %}#e74c3c{% else %}#16a085{% endif %}">{{ low_stock|length }}</div><div class="l">Below reorder level</div></div>
+  <div class="stat"><div class="n">{{ owned.equipment }}</div><div class="l"><a href="{% url 'operations:equipment_list' %}">Equipment &amp; tools</a></div></div>
+  <div class="stat"><div class="n">{{ owned.stock_items }}</div><div class="l"><a href="{% url 'operations:stock_list' %}">Supplies &amp; hardware</a></div></div>
+  <div class="stat"><div class="n">{{ owned.spools }}</div><div class="l"><a href="{% url 'operations:spool_list' %}">Filament spools</a></div></div>
+  <div class="stat"><div class="n">{{ owned.produced }}</div><div class="l"><a href="{% url 'operations:finished_goods' %}">Items printed</a></div></div>
 </div>
 
 <div class="card mt-3">
-  <h2>Low stock — at or below reorder threshold</h2>
-  {% if low_stock %}
-    <table>
-      <tr><th>Material</th><th>Type</th><th class="text-right">On hand</th><th class="text-right">Reorder at</th></tr>
-      {% for m in low_stock %}
-      <tr>
-        <td><a href="{% url 'operations:material_detail' m.id %}">{{ m }}</a></td>
-        <td>{{ m.get_material_type_display }}</td>
-        <td class="text-right">{{ m.total_on_hand }}{% if m.is_filament %} g{% endif %}</td>
-        <td class="text-right">{{ m.reorder_threshold }}</td>
-      </tr>
-      {% endfor %}
-    </table>
-  {% else %}<p class="text-muted">Nothing is below its reorder threshold.</p>{% endif %}
+  <div class="row-split"><h2>Purchases</h2><a href="{% url 'operations:purchase_list' %}">All purchases →</a></div>
+  <p>{{ purchase_count }} purchase{{ purchase_count|pluralize }} recorded — total recorded cost
+     <strong>${{ purchase_total|floatformat:2 }}</strong>.</p>
+  <p class="help">Recorded acquisition cost only — not profit, a tax deduction, or verified cash paid.</p>
 </div>
 
+<!-- 2) What is arriving / awaiting confirmation -->
 <div class="card">
-  <div class="row-split"><h2>Active spools</h2><a href="{% url 'operations:spool_list' %}">All spools →</a></div>
-  {% if spools %}
+  <h2>Arriving &amp; awaiting delivery</h2>
+  {% if awaiting_lines %}
+    <p class="mb-2"><strong>Awaiting delivery confirmation</strong> (ordered; not yet confirmed — not counted as on hand):</p>
     <table>
-      <tr><th>Spool</th><th>Material</th><th>Status</th><th class="text-right">Remaining</th></tr>
-      {% for s in spools %}
-      <tr>
-        <td><a href="{% url 'operations:spool_detail' s.id %}">{{ s.spool_uid }}</a></td>
-        <td>{{ s.material }}</td>
-        <td><span class="badge badge-blue">{{ s.get_status_display }}</span></td>
-        <td class="text-right">{% if s.remaining_unknown %}<span class="text-muted">{{ s.remaining_display }}</span>{% else %}{{ s.estimated_remaining_g }} g{% endif %}</td>
-      </tr>
+      <tr><th>Item</th><th>Supplier</th><th>Order</th></tr>
+      {% for ln in awaiting_lines %}
+      <tr><td>{{ ln.description }}</td><td>{{ ln.purchase.supplier_display }}</td>
+          <td><a href="{% url 'operations:purchase_detail' ln.purchase_id %}">{{ ln.purchase.order_number }}</a></td></tr>
       {% endfor %}
     </table>
-  {% else %}<p class="text-muted">No spools yet. <a href="{% url 'operations:opening_spool' %}">Add one you already own</a>.</p>{% endif %}
+  {% endif %}
+  {% if outstanding_lines %}
+    <p class="mb-2 mt-3"><strong>Not received yet</strong> (arriving / pickup pending):</p>
+    <table>
+      <tr><th>Item</th><th>Supplier</th><th>Order</th></tr>
+      {% for ln in outstanding_lines %}
+      <tr><td>{{ ln.description }}</td><td>{{ ln.purchase.supplier_display }}</td>
+          <td><a href="{% url 'operations:purchase_detail' ln.purchase_id %}">{{ ln.purchase.order_number }}</a></td></tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+  {% if not awaiting_lines and not outstanding_lines %}<p class="text-muted">Nothing outstanding — everything ordered has been received.</p>{% endif %}
 </div>
 
+<!-- 3) Filament: what is low, and what spare exists -->
 <div class="card">
-  <div class="row-split"><h2>Recent inventory movements</h2><a href="{% url 'operations:movement_list' %}">Full history →</a></div>
-  {% if recent_movements %}
+  <div class="row-split"><h2>Filament</h2><a href="{% url 'operations:spool_list' %}">All spools →</a></div>
+  {% if filament_rows %}
+  <table>
+    <tr><th>Colour</th><th>Status</th></tr>
+    {% for r in filament_rows %}
+    <tr>
+      <td>{{ r.m.name }}{% if r.m.product_type %} <span class="help">{{ r.m.product_type }}</span>{% endif %}</td>
+      <td>
+        {% if r.c.open %}<span class="badge badge-green">{{ r.c.open }} open</span> {% endif %}
+        {% if r.c.low %}<span class="badge badge-amber">{{ r.c.low }} low</span> {% endif %}
+        {% if r.c.spare_unopened %}<span class="badge badge-blue">{{ r.c.spare_unopened }} unopened spare</span> {% endif %}
+        {% if r.c.refills %}<span class="help">{{ r.c.refills }} refill{{ r.c.refills|pluralize }}</span> {% endif %}
+        {% if r.c.empty %}<span class="badge badge-grey">{{ r.c.empty }} empty</span> {% endif %}
+        {% if r.c.awaiting %}<span class="badge badge-amber">+{{ r.c.awaiting }} awaiting delivery</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if low_spools %}
+  <p class="help mt-2">Low: {% for s in low_spools %}{{ s.material.name }} ({{ s.spool_uid }}){% if not forloop.last %}, {% endif %}{% endfor %}.
+    A low spool only means that spool is running out — check the “unopened spare” count above before reordering.</p>
+  {% endif %}
+  {% else %}<p class="text-muted">No filament yet.</p>{% endif %}
+  {% if any_thresholds and reorder_materials %}
+  <p class="mt-2" style="color:#e74c3c;"><strong>At/below reorder threshold:</strong>
+    {% for m in reorder_materials %}{{ m }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+</div>
+
+<!-- 4) What have I printed, what is in progress -->
+<div class="card">
+  <div class="row-split"><h2>Printing</h2><a href="{% url 'operations:print_list' %}">All prints →</a></div>
+  {% if in_progress_prints %}
+    <p class="mb-2"><strong>In progress</strong></p>
     <table>
-      <tr><th>When</th><th>Type</th><th>Item</th><th class="text-right">Qty</th><th>By</th></tr>
-      {% for mv in recent_movements %}
-      <tr>
-        <td>{{ mv.created_at|date:"M j, H:i" }}</td>
-        <td>{{ mv.get_movement_type_display }}</td>
-        <td>{{ mv.target }}</td>
-        <td class="text-right">{{ mv.quantity }} {{ mv.unit }}</td>
-        <td>{{ mv.actor|default:"—" }}</td>
-      </tr>
+      <tr><th>Name</th><th>Printer</th><th>Started</th></tr>
+      {% for p in in_progress_prints %}
+      <tr><td><a href="{% url 'operations:print_detail' p.id %}">{{ p.name }}</a> <span class="badge badge-blue">In progress</span></td>
+          <td>{{ p.printer|default:"—" }}</td>
+          <td>{% if p.date_unknown %}<span class="text-muted">date unknown</span>{% else %}{{ p.printed_on }}{% endif %}</td></tr>
       {% endfor %}
     </table>
-  {% else %}<p class="text-muted">No movements yet.</p>{% endif %}
+  {% endif %}
+  {% if recent_prints %}
+    <p class="mb-2 mt-3"><strong>Recent prints</strong></p>
+    <table>
+      <tr><th>Name</th><th>Date</th><th>Outcome</th></tr>
+      {% for p in recent_prints %}
+      <tr><td><a href="{% url 'operations:print_detail' p.id %}">{{ p.name }}</a></td>
+          <td>{% if p.date_unknown %}<span class="text-muted">date unknown</span>{% else %}{{ p.printed_on }}{% endif %}</td>
+          <td>{% if p.outcome == 'success' %}<span class="badge badge-green">Success</span>
+              {% elif p.outcome == 'partial' %}<span class="badge badge-amber">Partial</span>
+              {% else %}<span class="badge badge-red">Failed</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+  {% if not in_progress_prints and not recent_prints %}<p class="text-muted">No prints logged yet.</p>{% endif %}
 </div>
 {% endblock %}

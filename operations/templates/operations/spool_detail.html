@@ -8,8 +8,25 @@
 <div class="card">
   <p><strong>Material:</strong> {{ spool.material }}
      &nbsp; <strong>Kind:</strong> {% if spool.is_refill %}Refill (no physical core){% else %}Physical spool{% endif %}
-     &nbsp; <strong>Status:</strong> {{ spool.get_status_display }}
-     &nbsp; <strong>Location:</strong> {{ spool.location|default:"—" }}</p>
+     &nbsp; <strong>Status:</strong> <span class="badge badge-blue">{{ spool.get_status_display }}</span>
+     &nbsp; <strong>Location:</strong> {{ spool.location|default:"—" }}
+     {% if spool.awaiting_confirmation %}&nbsp; <span class="badge badge-amber">Awaiting delivery confirmation</span>{% endif %}</p>
+
+  <div class="mt-2">
+    <strong>Set status:</strong>
+    <form method="post" action="{% url 'operations:spool_set_status' spool.id %}" class="inline-form">
+      {% csrf_token %}
+      {% for val, label in status_choices %}
+        {% if val != spool.status %}<button name="status" value="{{ val }}" class="btn btn-secondary btn-sm">{{ label }}</button>{% endif %}
+      {% endfor %}
+    </form>
+    <span class="help">No weighing needed — this is the everyday signal.</span>
+  </div>
+  {% if spool.awaiting_confirmation %}
+  <form method="post" action="{% url 'operations:spool_confirm_delivery' spool.id %}" class="inline-form mt-2">
+    {% csrf_token %}<button class="btn btn-primary btn-sm">Confirm delivery (count as on hand)</button>
+  </form>
+  {% endif %}
   {% if spool.remaining_unknown %}
   <div class="grid">
     <div class="stat"><div class="n">{{ spool.remaining_display }}</div><div class="l">Remaining</div></div>
@@ -29,17 +46,20 @@
 </div>
 
 <div class="card">
-  <h2>Weigh this spool</h2>
-  <form method="post" action="{% url 'operations:spool_weigh' spool.id %}">
-    {% csrf_token %}
-    {% for field in weigh_form %}
-      <div class="form-group" style="max-width:360px;">
-        <label>{{ field.label }}</label>{{ field }}
-        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}
-      </div>
-    {% endfor %}
-    <button type="submit" class="btn btn-primary">Record weigh-in</button>
-  </form>
+  <details>
+    <summary style="cursor:pointer;font-weight:600;color:#1f3a4d;">Weigh this spool (optional)</summary>
+    <p class="help mt-2">Weighing is optional — only if you want a measured gram value for this spool.</p>
+    <form method="post" action="{% url 'operations:spool_weigh' spool.id %}">
+      {% csrf_token %}
+      {% for field in weigh_form %}
+        <div class="form-group" style="max-width:360px;">
+          <label>{{ field.label }}</label>{{ field }}
+          {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary">Record weigh-in</button>
+    </form>
+  </details>
 </div>
 
 <div class="card">

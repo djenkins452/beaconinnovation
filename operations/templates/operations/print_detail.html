@@ -5,15 +5,26 @@
   {% if print_log.is_historical %}<span class="badge badge-grey">historical</span>{% endif %}</h1>
   <a href="{% url 'operations:print_list' %}" class="btn btn-secondary btn-sm">← Prints</a></div>
 <div class="card">
-  <p><strong>Date:</strong> {{ print_log.printed_on }} &nbsp; <strong>Printer:</strong> {{ print_log.printer|default:"—" }}
+  <p><strong>Date:</strong>
+     {% if print_log.date_unknown %}<span class="text-muted">Date unknown (historical)</span>{% else %}{{ print_log.printed_on }}{% endif %}
+     &nbsp; <strong>Printer:</strong> {{ print_log.printer|default:"—" }}
      &nbsp; <strong>Purpose:</strong> {{ print_log.get_purpose_display }}
-     &nbsp; <strong>Outcome:</strong> {{ print_log.get_outcome_display }}</p>
+     &nbsp; <strong>Outcome:</strong>
+     {% if print_log.outcome == 'success' %}<span class="badge badge-green">Success</span>
+     {% elif print_log.outcome == 'partial' %}<span class="badge badge-amber">Partial</span>
+     {% elif print_log.outcome == 'in_progress' %}<span class="badge badge-blue">In progress</span>
+     {% else %}<span class="badge badge-red">Failed</span>{% endif %}</p>
+  {% if print_log.date_unknown %}<p class="help">Recorded {{ print_log.created_at|date:"M j, Y H:i" }} (import timestamp). The actual print date was not known and has not been invented.</p>{% endif %}
   {% if print_log.notes %}<p class="text-muted">{{ print_log.notes }}</p>{% endif %}
+  {% if print_log.material_tracked %}
   <div class="grid mt-2">
-    <div class="stat"><div class="n">{{ print_log.total_consumed_g }} g</div><div class="l">Into parts</div></div>
-    <div class="stat"><div class="n">{{ print_log.total_waste_g }} g</div><div class="l">Waste</div></div>
-    <div class="stat"><div class="n">{{ print_log.total_filament_g }} g</div><div class="l">Total filament used</div></div>
+    <div class="stat"><div class="n">{{ print_log.total_consumed_g|floatformat:2 }} g</div><div class="l">Into parts</div></div>
+    <div class="stat"><div class="n">{{ print_log.total_waste_g|floatformat:2 }} g</div><div class="l">Waste</div></div>
+    <div class="stat"><div class="n">{{ print_log.total_filament_g|floatformat:2 }} g</div><div class="l">Total filament used</div></div>
   </div>
+  {% else %}
+  <p class="mt-2"><strong>Filament used:</strong> <span class="text-muted">Not tracked</span> — this print is tracked by status, not by grams.</p>
+  {% endif %}
 </div>
 {% if products %}
 <div class="card">

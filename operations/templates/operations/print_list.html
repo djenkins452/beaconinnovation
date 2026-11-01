@@ -6,18 +6,18 @@
   {% if page.object_list %}
   <table>
     <tr><th>Date</th><th>Name</th><th>Printer</th><th>Purpose</th><th>Outcome</th>
-        <th class="text-right">Consumed</th><th class="text-right">Waste</th></tr>
+        <th class="text-right">Filament used</th></tr>
     {% for p in page.object_list %}
     <tr>
-      <td>{{ p.printed_on }}</td>
-      <td><a href="{% url 'operations:print_detail' p.id %}">{{ p.name }}</a></td>
+      <td>{% if p.date_unknown %}<span class="text-muted" title="Actual print date unknown; recorded {{ p.created_at|date:'M j, Y' }}">Date unknown</span>{% else %}{{ p.printed_on }}{% endif %}</td>
+      <td><a href="{% url 'operations:print_detail' p.id %}">{{ p.name }}</a>{% if p.is_historical %} <span class="badge badge-grey">historical</span>{% endif %}</td>
       <td>{{ p.printer|default:"—" }}</td>
       <td>{{ p.get_purpose_display }}</td>
       <td>{% if p.outcome == 'success' %}<span class="badge badge-green">Success</span>
           {% elif p.outcome == 'partial' %}<span class="badge badge-amber">Partial</span>
+          {% elif p.outcome == 'in_progress' %}<span class="badge badge-blue">In progress</span>
           {% else %}<span class="badge badge-red">Failed</span>{% endif %}</td>
-      <td class="text-right">{{ p.total_consumed_g }} g</td>
-      <td class="text-right">{{ p.total_waste_g }} g</td>
+      <td class="text-right">{% if p.material_tracked %}{{ p.total_filament_g|floatformat:2 }} g{% else %}<span class="text-muted">Not tracked</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
