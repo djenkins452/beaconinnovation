@@ -242,6 +242,7 @@ class FilamentSpool(models.Model):
     STATUS_CHOICES = [
         ('sealed', 'Sealed / new'),
         ('open', 'Open / in use'),
+        ('low', 'Low'),
         ('empty', 'Empty'),
         ('damaged', 'Damaged'),
     ]
@@ -257,8 +258,22 @@ class FilamentSpool(models.Model):
         help_text='Your identifier for this physical spool (e.g. SP-0007).',
     )
     starting_weight_g = models.DecimalField(
-        **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
-        help_text='Net filament weight when this spool entered inventory (g).',
+        default=ZERO, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
+        help_text='Net filament weight when this spool entered inventory (g). '
+                  'Leave 0 and tick "remaining unknown" to track by status only.',
+    )
+    # Gram tracking is OPTIONAL. When remaining is untracked we track the spool by
+    # material/color + status (sealed/open/low/empty) instead of a weight. "Unknown"
+    # is NOT zero and NOT a full spool — it just means grams are not being tracked.
+    remaining_unknown = models.BooleanField(
+        default=False,
+        help_text='Remaining filament is not tracked by weight (track by status instead).',
+    )
+    # A refill is filament without its own physical spool core (loaded onto a reusable
+    # spool). Still inventory, but not another physical spool.
+    is_refill = models.BooleanField(
+        default=False,
+        help_text='This is refill filament (no physical spool core), not a new spool.',
     )
     tare_weight_g = models.DecimalField(
         null=True, blank=True, **WEIGHT_DECIMALS, validators=[MinValueValidator(ZERO)],
@@ -308,6 +323,22 @@ class FilamentSpool(models.Model):
         if measured is None:
             return None
         return measured - self.estimated_remaining_g
+
+    @property
+    def is_tracked(self):
+        """True when this spool's remaining filament is tracked by weight."""
+        return not self.remaining_unknown
+
+    @property
+    def remaining_display(self):
+        """Human label for remaining filament. When grams aren't tracked, show the
+        status word ("Unknown" is deliberately NOT 0 g and NOT a full spool)."""
+        if self.remaining_unknown:
+            measured = self.measured_remaining_g
+            if measured is not None:
+                return f'{measured:g} g (measured)'
+            return 'Unknown (tracked by status)'
+        return f'{self.estimated_remaining_g:g} g'
 
 
 class StockItem(models.Model):
@@ -747,6 +778,7 @@ class PrintLog(models.Model):
         ('success', 'Success'),
         ('partial', 'Partial'),
         ('failed', 'Failed'),
+        ('in_progress', 'In progress'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -757,7 +789,7 @@ class PrintLog(models.Model):
         limit_choices_to={'equipment_type': 'printer'},
     )
     purpose = models.CharField(max_length=12, choices=PURPOSE_CHOICES, default='business')
-    outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES, default='success')
+    outcome = models.CharField(max_length=12, choices=OUTCOME_CHOICES, default='success')
     success_quantity = models.IntegerField(
         default=0, validators=[MinValueValidator(0)],
         help_text='Legacy/simple good-unit count. When product lines are used, their '

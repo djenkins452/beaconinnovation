@@ -698,6 +698,44 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-11-01
+
+### Operations — real print-room history import + optional filament-gram tracking
+- Files:
+  - `operations/models.py` — `FilamentSpool`: `starting_weight_g` now defaults 0;
+    new `remaining_unknown` + `is_refill` booleans; `low` status; `remaining_display`
+    / `is_tracked` properties. `PrintLog.outcome` gains `in_progress` (field widened
+    to max_length 12).
+  - `operations/services.py` — `enter_opening_spool` + new `receive_filament_spool`
+    support untracked grams (no invented movement) and refills; idempotent by
+    `spool_uid`. `create_and_fulfill_internal_order` accepts a stable
+    `fulfillment_token` (idempotent re-run).
+  - `operations/forms.py`, `operations/views.py` — opening-spool screen allows
+    quantity-only entry ("remaining unknown", refill, low).
+  - `operations/templates/operations/{spool_list,spool_detail,dashboard}.html` —
+    show status-based "Unknown" remaining + Kind (Spool/Refill).
+  - `operations/management/commands/import_print_history.py` — NEW generic,
+    idempotent importer. Contains NO business data; reads an external **private**
+    JSON spec (kept out of the repo, e.g. `~/beacon-backups/`). Preview by default,
+    `--apply` to write.
+- Migration: `operations/0003_filamentspool_is_refill_and_more`.
+- Tests: `operations/tests/test_import_history.py` (6 new) — unknown-grams, no-payment
+  fulfillment nets finished goods to zero with no finance txn, in-progress batch makes
+  no stock, outstanding lines create no inventory, idempotent re-run, reconciliation
+  mismatch rejected. Full `operations` suite: 43 pass on PostgreSQL.
+- Data imported (private JSON, applied to prod): 21 purchases ($3,439.23 = Amazon
+  $853.11 incl. a late-added order + non-Amazon $2,586.12), 14 private PDF documents,
+  23 filament spools (grams untracked; 11 refills, 2 gift $0), 18 stock + 11 equipment
+  received, 11 outstanding lines, 6 products / 14 variants, 15 prints (14 historical +
+  1 in-progress 10-bin batch), 2 fulfilled no-payment internal orders.
+- Notes: **No finance `Transaction` created** — finance has 0 rows to link, an order
+  confirmation isn't proof of settled payment, and the paying account per order is
+  unknown (orders span ≥4 cards incl. a Chase Sapphire not on file). Purchases carry
+  full costs; expenses can be added later, once, per account. Filament has **no gram
+  movements** (nothing invented). Excluded per instruction: skincare/snack/home-office
+  orders + the cancelled anchor. Magnetic-toolbox-labels .3mf attached but not in the
+  stated printed history → not imported as production (flagged).
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 

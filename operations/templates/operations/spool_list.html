@@ -14,21 +14,22 @@
 <div class="card">
   {% if rows %}
   <table>
-    <tr><th>Spool</th><th>Material</th><th>Status</th><th>Location</th>
-        <th class="text-right">Est. (ledger)</th><th class="text-right">Measured</th><th class="text-right">Variance</th></tr>
+    <tr><th>Spool</th><th>Material</th><th>Kind</th><th>Status</th><th>Location</th>
+        <th class="text-right">Remaining</th><th class="text-right">Measured</th><th class="text-right">Variance</th></tr>
     {% for r in rows %}
     <tr>
       <td><a href="{% url 'operations:spool_detail' r.s.id %}">{{ r.s.spool_uid }}</a></td>
       <td>{{ r.s.material }}</td>
+      <td>{% if r.s.is_refill %}<span class="badge">Refill</span>{% else %}Spool{% endif %}</td>
       <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span></td>
       <td>{{ r.s.location|default:"—" }}</td>
-      <td class="text-right">{{ r.est }} g</td>
+      <td class="text-right">{% if r.s.remaining_unknown %}<span class="text-muted">{{ r.s.remaining_display }}</span>{% else %}{{ r.est }} g{% endif %}</td>
       <td class="text-right">{% if r.measured is not None %}{{ r.measured }} g{% else %}<span class="text-muted">—</span>{% endif %}</td>
       <td class="text-right">{% if r.variance is not None %}{{ r.variance }} g{% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
-  <p class="help mt-2">“Est. (ledger)” is driven by the movement ledger. “Measured” is the latest weigh-in. Reconcile on a spool to align them.</p>
+  <p class="help mt-2">Gram tracking is optional. Spools marked “Unknown” are tracked by status (sealed / open / low / empty), not by weight. Where a weight is tracked, “Remaining” is the ledger total; “Measured” is the latest weigh-in — reconcile on a spool to align them.</p>
   {% else %}<p class="text-muted">No spools yet.</p>{% endif %}
 </div>
 {% endblock %}

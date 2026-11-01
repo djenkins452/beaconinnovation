@@ -279,11 +279,14 @@ def opening_spool(request):
         try:
             spool = services.enter_opening_spool(
                 material=d['material'], spool_uid=d['spool_uid'],
-                starting_weight_g=d['starting_weight_g'], tare_weight_g=d['tare_weight_g'],
+                starting_weight_g=d.get('starting_weight_g') or 0,
+                remaining_unknown=d.get('remaining_unknown', False),
+                is_refill=d.get('is_refill', False),
+                tare_weight_g=d['tare_weight_g'],
                 cost=d['cost'], cost_unknown=d['cost_unknown'], location=d['location'],
                 status=d['status'], notes=d['notes'], actor=request.user)
-            messages.success(request, f'Opening spool "{spool.spool_uid}" added with '
-                                      f'{spool.estimated_remaining_g} g (no expense created).')
+            messages.success(request, f'Opening spool "{spool.spool_uid}" added '
+                                      f'({spool.remaining_display}; no expense created).')
             return redirect('operations:spool_detail', spool_id=spool.id)
         except Exception as e:
             messages.error(request, f'Could not add spool: {e}')

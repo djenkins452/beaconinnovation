@@ -171,20 +171,29 @@ def reverse_movement(movement, actor, reason=''):
 @transaction.atomic
 def enter_opening_spool(*, material, spool_uid, starting_weight_g, actor,
                         tare_weight_g=None, cost=None, cost_unknown=False,
-                        location=None, status='open', notes='', occurred_at=None):
+                        location=None, status='open', notes='', occurred_at=None,
+                        remaining_unknown=False, is_refill=False):
     """Create a spool you already own and seed it with an opening-balance movement.
-    No finance expense is created."""
+    No finance expense is created.
+
+    Gram tracking is optional: when ``remaining_unknown`` is true no opening-balance
+    movement is posted (the spool is tracked by status instead) — we do NOT invent a
+    weight to satisfy the ledger. ``is_refill`` marks refill filament with no physical
+    spool core.
+    """
+    starting = Decimal(starting_weight_g or 0)
     spool = FilamentSpool.objects.create(
-        material=material, spool_uid=spool_uid, starting_weight_g=Decimal(starting_weight_g),
+        material=material, spool_uid=spool_uid, starting_weight_g=starting,
+        remaining_unknown=remaining_unknown, is_refill=is_refill,
         tare_weight_g=tare_weight_g, cost=(None if cost_unknown else cost),
         cost_unknown=cost_unknown, location=location, status=status, notes=notes,
         created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
     )
     record_audit(actor, 'create', spool, summary='Opening spool entered')
-    if Decimal(starting_weight_g) > ZERO:
+    if starting > ZERO and not remaining_unknown:
         post_movement(
             movement_type='opening_balance', spool=spool,
-            quantity=Decimal(starting_weight_g), unit=UnitChoices.GRAM, actor=actor,
+            quantity=starting, unit=UnitChoices.GRAM, actor=actor,
             reason='Opening inventory', occurred_at=occurred_at,
         )
     return spool
@@ -284,6 +293,51 @@ def receive_filament_line(*, line, spool_specs, actor, location=None, idempotenc
 
     _advance_received(line, Decimal(len(created)), None)
     return created
+
+
+@transaction.atomic
+def receive_filament_spool(*, line, spool_uid, actor, starting_weight_g=ZERO,
+                           remaining_unknown=False, is_refill=False, status='sealed',
+                           cost=None, cost_unknown=False, tare_weight_g=None,
+                           location=None, notes='', idempotency_key=None):
+    """Receive ONE filament spool (or refill) from a purchase line.
+
+    Idempotent by the physical spool's ``spool_uid`` — re-running returns the
+    existing spool and advances nothing twice. When ``remaining_unknown`` is true no
+    receipt movement is posted (grams untracked; we never invent a weight); the spool
+    is still linked to the line and the line's received count advances by one. No
+    finance expense is created."""
+    if line.item_type != 'filament':
+        raise ValidationError('receive_filament_spool is only for filament lines.')
+    material = line.material
+    if material is None or material.material_type != 'filament':
+        raise ValidationError('Filament lines need a filament material set.')
+
+    existing = FilamentSpool.objects.filter(spool_uid=spool_uid).first()
+    if existing is not None:
+        return existing  # idempotent by spool identity
+
+    starting = Decimal(starting_weight_g or 0)
+    spool = FilamentSpool.objects.create(
+        material=material, spool_uid=spool_uid, starting_weight_g=starting,
+        remaining_unknown=remaining_unknown, is_refill=is_refill,
+        tare_weight_g=tare_weight_g, cost=(None if cost_unknown else cost),
+        cost_unknown=cost_unknown, location=location, status=status, notes=notes,
+        source_line=line,
+        created_by=actor if (actor and getattr(actor, 'is_authenticated', False)) else None,
+    )
+    record_audit(
+        actor, 'create', spool,
+        summary=f'Spool received from purchase ({"refill" if is_refill else "spool"}'
+                f'{", grams untracked" if remaining_unknown else ""})')
+    if starting > ZERO and not remaining_unknown:
+        post_movement(
+            movement_type='purchase_receipt', spool=spool, quantity=starting,
+            unit=UnitChoices.GRAM, actor=actor, reason=f'Received: {line.description}',
+            purchase_line=line, idempotency_key=idempotency_key,
+        )
+    _advance_received(line, Decimal('1'), None)
+    return spool
 
 
 @transaction.atomic
@@ -571,12 +625,20 @@ def fulfill_internal_order(*, order, actor, fulfillment_token=None, occurred_at=
 
 @transaction.atomic
 def create_and_fulfill_internal_order(*, purpose, lines, actor, notes='', ordered_on=None,
-                                      occurred_at=None):
+                                      occurred_at=None, fulfillment_token=None):
     """Convenience for the historical flow: create an internal order and fulfill it
-    immediately, keeping the order and fulfillment as distinct records."""
+    immediately, keeping the order and fulfillment as distinct records.
+
+    If ``fulfillment_token`` is given and an order already carries it, that order is
+    returned unchanged (idempotent re-run — no second order, no double deduction)."""
+    if fulfillment_token:
+        existing = InternalOrder.objects.filter(fulfillment_token=fulfillment_token).first()
+        if existing is not None:
+            return existing
     order = create_internal_order(purpose=purpose, lines=lines, actor=actor, notes=notes,
                                   ordered_on=ordered_on)
-    return fulfill_internal_order(order=order, actor=actor, occurred_at=occurred_at)
+    return fulfill_internal_order(order=order, actor=actor, occurred_at=occurred_at,
+                                  fulfillment_token=fulfillment_token)
 
 
 def uuid_hex():

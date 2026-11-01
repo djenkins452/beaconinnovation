@@ -6,8 +6,18 @@
   <a href="{% url 'operations:spool_list' %}" class="btn btn-secondary btn-sm">← Spools</a>
 </div>
 <div class="card">
-  <p><strong>Material:</strong> {{ spool.material }} &nbsp; <strong>Status:</strong> {{ spool.get_status_display }}
+  <p><strong>Material:</strong> {{ spool.material }}
+     &nbsp; <strong>Kind:</strong> {% if spool.is_refill %}Refill (no physical core){% else %}Physical spool{% endif %}
+     &nbsp; <strong>Status:</strong> {{ spool.get_status_display }}
      &nbsp; <strong>Location:</strong> {{ spool.location|default:"—" }}</p>
+  {% if spool.remaining_unknown %}
+  <div class="grid">
+    <div class="stat"><div class="n">{{ spool.remaining_display }}</div><div class="l">Remaining</div></div>
+    <div class="stat"><div class="n">{% if measured is not None %}{{ measured }} g{% else %}—{% endif %}</div><div class="l">Last measured (scale)</div></div>
+  </div>
+  <p class="help mt-2">Grams are not tracked for this spool — it is tracked by status (sealed / open / low / empty). Record a weigh-in below if you want a measured value.
+    {% if spool.cost_unknown %}Cost unknown.{% elif spool.cost %}Cost ${{ spool.cost }}.{% endif %}</p>
+  {% else %}
   <div class="grid">
     <div class="stat"><div class="n">{{ est }} g</div><div class="l">Estimated remaining (ledger)</div></div>
     <div class="stat"><div class="n">{% if measured is not None %}{{ measured }} g{% else %}—{% endif %}</div><div class="l">Last measured (scale)</div></div>
@@ -15,6 +25,7 @@
   </div>
   <p class="help mt-2">Started at {{ spool.starting_weight_g }} g{% if spool.tare_weight_g %}, tare {{ spool.tare_weight_g }} g{% endif %}.
     {% if spool.cost_unknown %}Cost unknown.{% elif spool.cost %}Cost ${{ spool.cost }}.{% endif %}</p>
+  {% endif %}
 </div>
 
 <div class="card">

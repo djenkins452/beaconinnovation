@@ -39,13 +39,13 @@
   <div class="row-split"><h2>Active spools</h2><a href="{% url 'operations:spool_list' %}">All spools →</a></div>
   {% if spools %}
     <table>
-      <tr><th>Spool</th><th>Material</th><th>Status</th><th class="text-right">Est. remaining</th></tr>
+      <tr><th>Spool</th><th>Material</th><th>Status</th><th class="text-right">Remaining</th></tr>
       {% for s in spools %}
       <tr>
         <td><a href="{% url 'operations:spool_detail' s.id %}">{{ s.spool_uid }}</a></td>
         <td>{{ s.material }}</td>
         <td><span class="badge badge-blue">{{ s.get_status_display }}</span></td>
-        <td class="text-right">{{ s.estimated_remaining_g }} g</td>
+        <td class="text-right">{% if s.remaining_unknown %}<span class="text-muted">{{ s.remaining_display }}</span>{% else %}{{ s.estimated_remaining_g }} g{% endif %}</td>
       </tr>
       {% endfor %}
     </table>

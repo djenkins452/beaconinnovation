@@ -79,17 +79,32 @@ class EquipmentForm(StyledModelForm):
 
 # --------------------------------------------------------------------- opening inventory
 class OpeningSpoolForm(StyledForm):
-    """Add a filament spool you already own (no finance expense)."""
+    """Add a filament spool you already own (no finance expense).
+
+    Gram tracking is optional: tick "remaining unknown" to track the spool by status
+    only (sealed / open / low / empty) without entering a weight."""
     material = forms.ModelChoiceField(queryset=Material.objects.filter(material_type='filament', is_active=True))
     spool_uid = forms.CharField(max_length=60, label='Spool ID')
-    starting_weight_g = forms.DecimalField(min_value=Decimal('0'), label='Remaining filament now (g)',
-                                           help_text='For a partly-used spool, enter what is left now.')
+    remaining_unknown = forms.BooleanField(
+        required=False, initial=True, label='Remaining unknown (track by status only)',
+        help_text='Leave ticked to skip gram tracking. Untick to enter a weight.')
+    is_refill = forms.BooleanField(required=False, label='Refill (no physical spool core)')
+    starting_weight_g = forms.DecimalField(required=False, min_value=Decimal('0'),
+                                           label='Remaining filament now (g)',
+                                           help_text='Only if tracking by weight: what is left now.')
     tare_weight_g = forms.DecimalField(required=False, min_value=Decimal('0'), label='Empty-spool weight (g)')
     cost = forms.DecimalField(required=False, min_value=Decimal('0'))
     cost_unknown = forms.BooleanField(required=False, label='Cost unknown')
     location = forms.ModelChoiceField(queryset=Location.objects.filter(is_active=True), required=False)
     status = forms.ChoiceField(choices=FilamentSpool.STATUS_CHOICES, initial='open')
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get('remaining_unknown') and cleaned.get('starting_weight_g') in (None, ''):
+            self.add_error('starting_weight_g',
+                           'Enter a weight, or tick "remaining unknown" to track by status.')
+        return cleaned
 
 
 class OpeningStockForm(StyledForm):
