@@ -4,6 +4,21 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-11-01
+
+### Phase 1 — Operations module (3D-printing): purchasing + inventory + print logging
+- **Context:** Phase 0 (durable Postgres + private DB-backed storage) complete. Built the smallest useful operations system per `docs/architecture/PRINT_BUSINESS_OS_DISCOVERY.md` (§7, §9): track what you buy, own, and print on an auditable movement ledger. New staff-only app `operations` at `/operations/` (gate: `login_required` + `is_staff`, 404 for non-staff — same as `admin_console`).
+- **Architecture — append-only ledger:** `InventoryMovement` is the single source of truth; on hand = Σ(movements). Movements are immutable (`save`/`delete` blocked); corrections are reversing/adjusting movements. All writes go through `operations/services.py`, which also writes an **immutable `AuditEvent`** (the wired audit finance's `AuditLogMixin` never got). Deductions lock the target row (`select_for_update`) + re-check sufficiency; receive/print submissions carry idempotency keys/tokens (no double-count); insufficient-stock is rejected with a reconciliation path. Decimals/units explicit (grams 12,2; counts 12,3; money 12,2).
+- **Models:** Supplier, Location, Material, FilamentSpool (per-spool; estimated-from-ledger vs measured-from-weigh-in kept separate), StockItem (available/damaged/unusable), Equipment (asset, not stock), Purchase/PurchaseLine (ordered vs received, business/personal/shared split), PurchasePayment (finance bridge), PurchaseDocument (private, reuses `finance.storage.database_storage`), InventoryMovement, PrintLog/PrintMaterialUse (consumed vs waste, each once; failed prints still consume), ScaleMeasurement, AuditEvent.
+- **Finance linking:** receiving/opening → inventory movements **automatically, never an expense**; purchase → finance expense is **manual** (link an existing expense, or create exactly one and link it). Money is counted once; a purchase may have 0/1/many payments; same transaction can't be linked twice.
+- **Screens (navigable, not admin-only):** dashboard, purchases (+ receive, link/create expense, upload doc), spools (+ weigh-in + reconcile), stock, materials, prints, inventory history (+ reverse), opening inventory, equipment, suppliers, locations. Admin registrations added for convenience; ledger + audit are read-only in admin.
+- **Storage/cost disclosure:** purchase documents reuse the Phase 0 private DB-backed storage (bytes in Postgres, no public URL, staff-gated serving); no Volume/paid resource added. Operations rows + document bytes add to DB/backup size — negligible at this volume but **not "free"**; documents are the only material contributor (PDF/JPG/PNG, ≤ `FINANCE_RECEIPT_MAX_SIZE_MB`).
+- **Boundaries (not built):** storefront, customer orders, quotes, personalization approvals, scheduling, auto-pricing, printer integration, QR, full costing engine; no reservations. Finance behavior, private storage, and aegis DB isolation unchanged (operations lives in `default`; aegis dormant).
+- Files: `operations/` (new app: models, services, forms, views, urls, admin, templates/, tests/), `operations/migrations/0001_initial.py`, `beaconinnovation/settings.py` (INSTALLED_APPS), `beaconinnovation/urls.py` (`/operations/`), `.claude/launch.json` (local dev server), `docs/architecture/PHASE_1_OPERATIONS.md` (new).
+- Tests: 23 operations tests pass on PostgreSQL (opening-no-expense, partial receipts, one-expense-per-purchase, multicolor/failed prints, waste-once, idempotent submissions, auditable reversals, reconcile, insufficient-stock, staff gate + private-attachment access, all-screens-render). Full default-DB suite: 521/522 pass (1 pre-existing `products` AIMS-build-artifact failure, unrelated — confirmed failing without these changes). Synthetic data only; no real purchases loaded.
+
+---
+
 ## 2026-10-31
 
 ### Durable, private storage for finance uploads (DB-backed) + credential finalization

@@ -1,0 +1,30 @@
+{% extends 'operations/base.html' %}
+{% block title %}{{ print_log.name }}{% endblock %}
+{% block content %}
+<div class="row-split"><h1>{{ print_log.name }}</h1><a href="{% url 'operations:print_list' %}" class="btn btn-secondary btn-sm">← Prints</a></div>
+<div class="card">
+  <p><strong>Date:</strong> {{ print_log.printed_on }} &nbsp; <strong>Printer:</strong> {{ print_log.printer|default:"—" }}
+     &nbsp; <strong>Purpose:</strong> {{ print_log.get_purpose_display }}
+     &nbsp; <strong>Outcome:</strong> {{ print_log.get_outcome_display }}
+     &nbsp; <strong>Good units:</strong> {{ print_log.success_quantity }}</p>
+  {% if print_log.notes %}<p class="text-muted">{{ print_log.notes }}</p>{% endif %}
+  <div class="grid mt-2">
+    <div class="stat"><div class="n">{{ print_log.total_consumed_g }} g</div><div class="l">Into parts</div></div>
+    <div class="stat"><div class="n">{{ print_log.total_waste_g }} g</div><div class="l">Waste</div></div>
+    <div class="stat"><div class="n">{{ print_log.total_filament_g }} g</div><div class="l">Total filament used</div></div>
+  </div>
+</div>
+<div class="card">
+  <h2>Filament used</h2>
+  {% if uses %}
+  <table>
+    <tr><th>Spool</th><th class="text-right">Into part</th><th class="text-right">Waste</th><th class="text-right">Total</th></tr>
+    {% for u in uses %}
+    <tr><td><a href="{% url 'operations:spool_detail' u.spool_id %}">{{ u.spool.spool_uid }}</a> — {{ u.spool.material }}</td>
+        <td class="text-right">{{ u.grams_consumed }} g</td><td class="text-right">{{ u.waste_grams }} g</td>
+        <td class="text-right">{{ u.total_g }} g</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No filament recorded for this print.</p>{% endif %}
+</div>
+{% endblock %}

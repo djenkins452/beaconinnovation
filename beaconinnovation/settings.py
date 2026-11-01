@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     'wlj',
     'admin_console',
     'finance',
+    'operations',
     'products',
     'distribution',
     # Enterprise Platform (incubated here; own DB + own /platform/ route).

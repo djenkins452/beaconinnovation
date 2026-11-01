@@ -1,0 +1,32 @@
+{% extends 'operations/base.html' %}
+{% block title %}Purchases{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Purchases</h1><a href="{% url 'operations:purchase_create' %}" class="btn btn-primary">Record a purchase</a></div>
+<div class="card">
+  {% if page.object_list %}
+  <table>
+    <tr><th>Date</th><th>Supplier</th><th>Order #</th><th class="text-right">Total</th><th>Receiving</th><th>Payments</th></tr>
+    {% for p in page.object_list %}
+    <tr>
+      <td>{{ p.order_date }}</td>
+      <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.supplier_display }}</a></td>
+      <td>{{ p.order_number|default:"—" }}</td>
+      <td class="text-right">${{ p.order_total }}</td>
+      <td>
+        {% if p.receipt_status == 'received' %}<span class="badge badge-green">Received</span>
+        {% elif p.receipt_status == 'partial' %}<span class="badge badge-amber">Partial</span>
+        {% elif p.receipt_status == 'none' %}<span class="badge badge-grey">Not received</span>
+        {% else %}<span class="badge badge-grey">No lines</span>{% endif %}
+      </td>
+      <td>{% if p.payments.all %}<span class="badge badge-blue">${{ p.linked_payment_total }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="pagination">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next →</a>{% endif %}
+  </div>
+  {% else %}<p class="text-muted">No purchases yet.</p>{% endif %}
+</div>
+{% endblock %}

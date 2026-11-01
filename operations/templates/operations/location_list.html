@@ -1,0 +1,16 @@
+{% extends 'operations/base.html' %}
+{% block title %}Locations{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Locations</h1><a href="{% url 'operations:location_create' %}" class="btn btn-primary">New location</a></div>
+<div class="card">
+  {% if locations %}
+  <table>
+    <tr><th>Name</th><th>Kind</th><th>Active</th></tr>
+    {% for l in locations %}
+    <tr><td>{{ l.name }}</td><td>{{ l.get_kind_display }}</td>
+        <td>{% if l.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-grey">Inactive</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No locations yet (shelves, bins, dry boxes).</p>{% endif %}
+</div>
+{% endblock %}

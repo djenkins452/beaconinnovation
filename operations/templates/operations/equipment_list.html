@@ -1,0 +1,19 @@
+{% extends 'operations/base.html' %}
+{% block title %}Equipment{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Equipment</h1><a href="{% url 'operations:equipment_create' %}" class="btn btn-primary">New equipment</a></div>
+<div class="card">
+  <p class="help mb-2">Printers and tools are assets, tracked separately from consumable stock. Receiving equipment never touches the inventory ledger.</p>
+  {% if equipment %}
+  <table>
+    <tr><th>Name</th><th>Type</th><th>Make / model</th><th>Status</th><th>Location</th></tr>
+    {% for e in equipment %}
+    <tr><td>{{ e.name }}</td><td>{{ e.get_equipment_type_display }}</td>
+        <td>{{ e.manufacturer }} {{ e.model }}</td>
+        <td>{% if e.status == 'active' %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-grey">Retired</span>{% endif %}</td>
+        <td>{{ e.location|default:"—" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No equipment yet.</p>{% endif %}
+</div>
+{% endblock %}

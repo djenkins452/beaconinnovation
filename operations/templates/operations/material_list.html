@@ -1,0 +1,30 @@
+{% extends 'operations/base.html' %}
+{% block title %}Materials{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Materials</h1><a href="{% url 'operations:material_create' %}" class="btn btn-primary">New material</a></div>
+<div class="card mb-2">
+  <form method="get" class="inline-form">
+    <label class="help">Filter by type:</label>
+    <select name="type" class="form-control" style="width:auto;display:inline-block;" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for val, label in type_choices %}<option value="{{ val }}" {% if type_filter == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+<div class="card">
+  {% if rows %}
+  <table>
+    <tr><th>Material</th><th>Type</th><th>SKU</th><th class="text-right">On hand</th><th>Reorder</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="{% url 'operations:material_detail' r.m.id %}">{{ r.m }}</a>{% if r.low %} <span class="badge badge-red">Low</span>{% endif %}</td>
+      <td>{{ r.m.get_material_type_display }}</td>
+      <td>{{ r.m.sku|default:"—" }}</td>
+      <td class="text-right">{{ r.on_hand }}{% if r.m.is_filament %} g{% else %} {{ r.m.default_unit }}{% endif %}</td>
+      <td>{{ r.m.reorder_threshold|default:"—" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No materials yet. Create one, then add spools/stock against it.</p>{% endif %}
+</div>
+{% endblock %}

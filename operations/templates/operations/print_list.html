@@ -1,0 +1,31 @@
+{% extends 'operations/base.html' %}
+{% block title %}Prints{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Print log</h1><a href="{% url 'operations:print_create' %}" class="btn btn-primary">Log a print</a></div>
+<div class="card">
+  {% if page.object_list %}
+  <table>
+    <tr><th>Date</th><th>Name</th><th>Printer</th><th>Purpose</th><th>Outcome</th>
+        <th class="text-right">Consumed</th><th class="text-right">Waste</th></tr>
+    {% for p in page.object_list %}
+    <tr>
+      <td>{{ p.printed_on }}</td>
+      <td><a href="{% url 'operations:print_detail' p.id %}">{{ p.name }}</a></td>
+      <td>{{ p.printer|default:"—" }}</td>
+      <td>{{ p.get_purpose_display }}</td>
+      <td>{% if p.outcome == 'success' %}<span class="badge badge-green">Success</span>
+          {% elif p.outcome == 'partial' %}<span class="badge badge-amber">Partial</span>
+          {% else %}<span class="badge badge-red">Failed</span>{% endif %}</td>
+      <td class="text-right">{{ p.total_consumed_g }} g</td>
+      <td class="text-right">{{ p.total_waste_g }} g</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="pagination">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next →</a>{% endif %}
+  </div>
+  {% else %}<p class="text-muted">No prints logged yet.</p>{% endif %}
+</div>
+{% endblock %}

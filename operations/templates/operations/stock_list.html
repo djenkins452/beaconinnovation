@@ -1,0 +1,24 @@
+{% extends 'operations/base.html' %}
+{% block title %}Stock{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Stock (hardware / consumables / packaging)</h1>
+  <a href="{% url 'operations:opening_stock' %}" class="btn btn-primary">Add existing stock</a></div>
+<div class="card">
+  {% if rows %}
+  <table>
+    <tr><th>Material</th><th>Location</th><th>Status</th><th class="text-right">On hand</th><th>Unit</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="{% url 'operations:material_detail' r.i.material_id %}">{{ r.i.material }}</a>
+          {% if r.i.material.is_low_stock %} <span class="badge badge-red">Low</span>{% endif %}</td>
+      <td>{{ r.i.location|default:"—" }}</td>
+      <td>{% if r.i.status == 'available' %}<span class="badge badge-green">{{ r.i.get_status_display }}</span>
+          {% else %}<span class="badge badge-amber">{{ r.i.get_status_display }}</span>{% endif %}</td>
+      <td class="text-right">{{ r.on_hand }}</td>
+      <td>{{ r.i.unit }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No stock yet.</p>{% endif %}
+</div>
+{% endblock %}

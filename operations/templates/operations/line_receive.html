@@ -1,0 +1,25 @@
+{% extends 'operations/base.html' %}
+{% block title %}Receive line{% endblock %}
+{% block content %}
+<h1>Receive: {{ line.description }}</h1>
+<div class="alert alert-info">
+  {% if kind == 'filament' %}Creates individual spools and posts a purchase-receipt movement for each.
+  {% elif kind == 'stock' %}Adds to stock on hand via a purchase-receipt movement.
+  {% else %}Records an equipment asset (printers/tools are not inventory).{% endif %}
+  No finance expense is created by receiving.
+</div>
+<div class="card" style="max-width:720px;">
+  <p class="help mb-2">Ordered {{ line.quantity_ordered }} {{ line.unit }}; received {{ line.quantity_received }} so far.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+    {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+      <div class="form-group"><label>{{ field.label }}</label>{{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">Receive</button>
+    <a href="{% url 'operations:purchase_detail' line.purchase_id %}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends 'operations/base.html' %}
+{% block title %}{{ material }}{% endblock %}
+{% block content %}
+<div class="row-split">
+  <h1>{{ material }}</h1>
+  <a href="{% url 'operations:material_list' %}" class="btn btn-secondary btn-sm">← Materials</a>
+</div>
+<div class="card">
+  <p><strong>Type:</strong> {{ material.get_material_type_display }}
+     &nbsp; <strong>Unit:</strong> {{ material.get_default_unit_display }}
+     {% if material.sku %}&nbsp; <strong>SKU:</strong> {{ material.sku }}{% endif %}</p>
+  <p><strong>On hand:</strong> {{ on_hand }}{% if material.is_filament %} g{% else %} {{ material.default_unit }}{% endif %}
+     {% if low %}<span class="badge badge-red">Below reorder threshold ({{ material.reorder_threshold }})</span>{% endif %}</p>
+  {% if material.notes %}<p class="text-muted">{{ material.notes }}</p>{% endif %}
+</div>
+
+{% if material.is_filament %}
+<div class="card">
+  <h2>Spools</h2>
+  {% if spools %}
+  <table>
+    <tr><th>Spool</th><th>Status</th><th class="text-right">Est. remaining</th><th class="text-right">Measured</th></tr>
+    {% for s in spools %}
+    <tr><td><a href="{% url 'operations:spool_detail' s.id %}">{{ s.spool_uid }}</a></td>
+        <td>{{ s.get_status_display }}</td>
+        <td class="text-right">{{ s.estimated_remaining_g }} g</td>
+        <td class="text-right">{% if s.measured_remaining_g is not None %}{{ s.measured_remaining_g }} g{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No spools of this material.</p>{% endif %}
+</div>
+{% else %}
+<div class="card">
+  <h2>Stock</h2>
+  {% if stock_items %}
+  <table>
+    <tr><th>Location</th><th>Status</th><th>Unit</th><th class="text-right">On hand</th></tr>
+    {% for i in stock_items %}
+    <tr><td>{{ i.location|default:"—" }}</td><td>{{ i.get_status_display }}</td><td>{{ i.unit }}</td>
+        <td class="text-right">{{ i.on_hand }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="text-muted">No stock of this material.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

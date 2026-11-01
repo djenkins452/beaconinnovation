@@ -9,6 +9,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin-console/', include('admin_console.urls')),
     path('finance/', include('finance.urls')),
+    path('operations/', include('operations.urls')),
     path('products/', include('products.urls')),
     path('wlj/', include('wlj.urls')),
     # Enterprise Platform (incubation route). Mounted before the '' website

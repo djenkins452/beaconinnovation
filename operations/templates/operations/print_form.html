@@ -1,0 +1,39 @@
+{% extends 'operations/base.html' %}
+{% block title %}Log a print{% endblock %}
+{% block content %}
+<h1>Log a print</h1>
+<div class="alert alert-info">Record what was printed and the filament it used. “Into part” and “Waste (purge/support)” are
+  deducted separately so waste is never double-counted. Failed prints still consume material — log the grams they used.</div>
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="submission_token" value="{{ submission_token }}">
+  <div class="card" style="max-width:720px;">
+    <h2>Print</h2>
+    {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+      <div class="form-group"><label>{{ field.label }}</label>{{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>Filament used</h2>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}<div class="alert alert-error">{{ formset.non_form_errors }}</div>{% endif %}
+    <table>
+      <tr><th>Spool</th><th>Into part (g)</th><th>Waste: purge/support (g)</th></tr>
+      {% for f in formset %}
+      <tr>
+        <td>{{ f.spool }}{{ f.spool.errors }}</td>
+        <td>{{ f.grams_consumed }}{{ f.grams_consumed.errors }}</td>
+        <td>{{ f.waste_grams }}{{ f.waste_grams.errors }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="help mt-2">Add a row per spool (multicolor prints use several). Leave a row blank to skip it.</p>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Log print & deduct filament</button>
+  <a href="{% url 'operations:print_list' %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

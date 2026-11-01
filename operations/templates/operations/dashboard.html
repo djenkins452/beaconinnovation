@@ -1,0 +1,71 @@
+{% extends 'operations/base.html' %}
+{% block title %}Operations{% endblock %}
+{% block content %}
+<div class="row-split">
+  <h1>Operations</h1>
+  <div>
+    <a href="{% url 'operations:purchase_create' %}" class="btn btn-primary">Record purchase</a>
+    <a href="{% url 'operations:print_create' %}" class="btn btn-primary">Log print</a>
+    <a href="{% url 'operations:opening_index' %}" class="btn btn-secondary">Add existing stock</a>
+  </div>
+</div>
+
+<div class="grid mt-2">
+  <div class="stat"><div class="n">{{ spool_count }}</div><div class="l">Active spools</div></div>
+  <div class="stat"><div class="n">{{ material_count }}</div><div class="l">Materials tracked</div></div>
+  <div class="stat"><div class="n">{{ open_purchases }}</div><div class="l">Purchases</div></div>
+  <div class="stat"><div class="n" style="color:{% if low_stock %}#e74c3c{% else %}#16a085{% endif %}">{{ low_stock|length }}</div><div class="l">Below reorder level</div></div>
+</div>
+
+<div class="card mt-3">
+  <h2>Low stock — at or below reorder threshold</h2>
+  {% if low_stock %}
+    <table>
+      <tr><th>Material</th><th>Type</th><th class="text-right">On hand</th><th class="text-right">Reorder at</th></tr>
+      {% for m in low_stock %}
+      <tr>
+        <td><a href="{% url 'operations:material_detail' m.id %}">{{ m }}</a></td>
+        <td>{{ m.get_material_type_display }}</td>
+        <td class="text-right">{{ m.total_on_hand }}{% if m.is_filament %} g{% endif %}</td>
+        <td class="text-right">{{ m.reorder_threshold }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}<p class="text-muted">Nothing is below its reorder threshold.</p>{% endif %}
+</div>
+
+<div class="card">
+  <div class="row-split"><h2>Active spools</h2><a href="{% url 'operations:spool_list' %}">All spools →</a></div>
+  {% if spools %}
+    <table>
+      <tr><th>Spool</th><th>Material</th><th>Status</th><th class="text-right">Est. remaining</th></tr>
+      {% for s in spools %}
+      <tr>
+        <td><a href="{% url 'operations:spool_detail' s.id %}">{{ s.spool_uid }}</a></td>
+        <td>{{ s.material }}</td>
+        <td><span class="badge badge-blue">{{ s.get_status_display }}</span></td>
+        <td class="text-right">{{ s.estimated_remaining_g }} g</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}<p class="text-muted">No spools yet. <a href="{% url 'operations:opening_spool' %}">Add one you already own</a>.</p>{% endif %}
+</div>
+
+<div class="card">
+  <div class="row-split"><h2>Recent inventory movements</h2><a href="{% url 'operations:movement_list' %}">Full history →</a></div>
+  {% if recent_movements %}
+    <table>
+      <tr><th>When</th><th>Type</th><th>Item</th><th class="text-right">Qty</th><th>By</th></tr>
+      {% for mv in recent_movements %}
+      <tr>
+        <td>{{ mv.created_at|date:"M j, H:i" }}</td>
+        <td>{{ mv.get_movement_type_display }}</td>
+        <td>{{ mv.target }}</td>
+        <td class="text-right">{{ mv.quantity }} {{ mv.unit }}</td>
+        <td>{{ mv.actor|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}<p class="text-muted">No movements yet.</p>{% endif %}
+</div>
+{% endblock %}

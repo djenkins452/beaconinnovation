@@ -1,0 +1,34 @@
+{% extends 'operations/base.html' %}
+{% block title %}Spools{% endblock %}
+{% block content %}
+<div class="row-split"><h1>Filament spools</h1><a href="{% url 'operations:opening_spool' %}" class="btn btn-primary">Add existing spool</a></div>
+<div class="card mb-2">
+  <form method="get" class="inline-form">
+    <label class="help">Status:</label>
+    <select name="status" class="form-control" style="width:auto;display:inline-block;" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for val, label in status_choices %}<option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+<div class="card">
+  {% if rows %}
+  <table>
+    <tr><th>Spool</th><th>Material</th><th>Status</th><th>Location</th>
+        <th class="text-right">Est. (ledger)</th><th class="text-right">Measured</th><th class="text-right">Variance</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="{% url 'operations:spool_detail' r.s.id %}">{{ r.s.spool_uid }}</a></td>
+      <td>{{ r.s.material }}</td>
+      <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span></td>
+      <td>{{ r.s.location|default:"—" }}</td>
+      <td class="text-right">{{ r.est }} g</td>
+      <td class="text-right">{% if r.measured is not None %}{{ r.measured }} g{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="text-right">{% if r.variance is not None %}{{ r.variance }} g{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="help mt-2">“Est. (ledger)” is driven by the movement ledger. “Measured” is the latest weigh-in. Reconcile on a spool to align them.</p>
+  {% else %}<p class="text-muted">No spools yet.</p>{% endif %}
+</div>
+{% endblock %}
