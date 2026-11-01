@@ -39,6 +39,39 @@ class StyledForm(forms.Form):
         _style(self)
 
 
+# Units sold/counted as indivisible whole items (a spool, a pack, a roll, a unit)
+# vs. units measured by weight/volume/length where decimals are meaningful. The
+# quantity box steps in whole numbers for the former and allows decimals for the
+# latter, so the up/down arrows never nudge a spool count into fractions.
+WHOLE_UNITS = {'each', 'pack', 'roll'}
+DECIMAL_UNITS = {'g', 'kg', 'ml', 'l', 'm'}
+
+
+def _configure_quantity_unit(form, qty_field='quantity_ordered', unit_field='unit'):
+    """Make quantity entry clear and safe: whole-number stepping for indivisible
+    items (spools/packs/rolls) and decimals only for weight/volume/length units.
+    A tiny script in the template flips the step live when the unit changes; here we
+    set a sensible default so the field never silently steps in thousandths."""
+    qf = form.fields.get(qty_field)
+    uf = form.fields.get(unit_field)
+    if qf is None or uf is None:
+        return
+    # Decide the initial step from whatever unit is currently selected.
+    current = form.initial.get(unit_field) or getattr(
+        getattr(form, 'instance', None), unit_field, None) or qf_initial_unit(form, unit_field)
+    step = 'any' if current in DECIMAL_UNITS else '1'
+    qf.widget.attrs.update({'step': step, 'min': '0', 'data-qty-input': '1'})
+    uf.widget.attrs.update({'data-unit-select': '1'})
+
+
+def qf_initial_unit(form, unit_field):
+    """Best-effort current unit for a form field (bound data, then field initial)."""
+    if form.is_bound:
+        return form.data.get(form.add_prefix(unit_field))
+    f = form.fields.get(unit_field)
+    return getattr(f, 'initial', None) if f else None
+
+
 def _collapse_single_location(form):
     """When only one active location exists, default to it and hide the selector so
     routine forms stay simple. The field reappears automatically once a second
@@ -166,11 +199,110 @@ class PurchaseLineForm(StyledModelForm):
             'item_type', 'description', 'material', 'quantity_ordered', 'unit',
             'unit_cost', 'line_discount', 'line_tax', 'use_type', 'business_pct',
         ]
+        labels = {
+            'quantity_ordered': 'Quantity ordered',
+            'unit': 'Purchase unit',
+            'unit_cost': 'Cost per unit',
+            'line_tax': 'Line tax (this line only)',
+        }
+        help_texts = {
+            'quantity_ordered': 'How many you bought. For a spool/pack/roll this steps '
+                                'in whole numbers; weight units (g/kg) allow decimals.',
+            'unit': 'What one unit is — e.g. 1 roll (spool) of filament, 1 pack, 1 each.',
+            'unit_cost': 'Price for ONE unit. 1 spool at $15.99 → quantity 1, unit roll, cost $15.99.',
+            'line_tax': 'Tax charged on this line only. Order-wide tax goes on the purchase, not here.',
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['material'].required = False
         self.fields['material'].queryset = Material.objects.filter(is_active=True)
+        _configure_quantity_unit(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        item_type = cleaned.get('item_type')
+        material = cleaned.get('material')
+        if item_type in ('filament', 'stock') and material is None:
+            self.add_error('material', 'Pick a material for filament/stock lines.')
+        if item_type == 'filament' and material and material.material_type != 'filament':
+            self.add_error('material', 'This line is filament but the material is not a filament.')
+        return cleaned
+
+
+class PurchaseEditForm(StyledModelForm):
+    """Edit a purchase's header: supplier, order date/number, order-level shipping,
+    tax and discount, notes, and funding designation. Order-level tax is a separate
+    field from any line's own tax, so it is never counted twice."""
+    class Meta:
+        model = Purchase
+        fields = [
+            'supplier', 'supplier_name', 'order_date', 'order_number', 'funding',
+            'shipping_total', 'tax_total', 'discount_total', 'product_links', 'notes',
+        ]
+        labels = {
+            'tax_total': 'Order-level tax',
+            'discount_total': 'Order-level discount',
+            'shipping_total': 'Shipping',
+            'funding': 'Funding',
+        }
+        help_texts = {
+            'tax_total': 'Tax charged on the whole order. Per-line tax is set on each line, '
+                         'not here — the two are added separately and never doubled.',
+            'funding': 'How this was paid, by your confirmation. Not a Finance expense, loan, '
+                       'or tax decision.',
+        }
+        widgets = {
+            'order_date': forms.DateInput(attrs={'type': 'date'}),
+            'product_links': forms.Textarea(attrs={'rows': 2, 'placeholder': 'One URL per line'}),
+            'notes': forms.Textarea(attrs={'rows': 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['supplier'].required = False
+        self.fields['supplier'].queryset = __import__('operations').models.Supplier.objects.filter(is_active=True)
+
+
+class PurchaseLineEditForm(StyledModelForm):
+    """Edit one purchase line. On a line that has already been received, the
+    structural fields (item type, material, purchase unit) are shown read-only — they
+    are locked because real inventory was created from them; cost, tax, discount, use
+    classification and description stay editable. The service layer enforces the same
+    rule, so a tampered submission is still rejected."""
+    class Meta:
+        model = PurchaseLine
+        fields = [
+            'item_type', 'description', 'material', 'quantity_ordered', 'unit',
+            'unit_cost', 'line_discount', 'line_tax', 'use_type', 'business_pct',
+        ]
+        labels = {
+            'quantity_ordered': 'Quantity ordered',
+            'unit': 'Purchase unit',
+            'unit_cost': 'Cost per unit',
+            'line_tax': 'Line tax (this line only)',
+        }
+        help_texts = {
+            'quantity_ordered': 'For a spool/pack/roll this steps in whole numbers; '
+                                'weight units (g/kg) allow decimals.',
+            'unit_cost': 'Price for ONE unit. 1 spool at $15.99 → quantity 1, unit roll, cost $15.99.',
+            'line_tax': 'Tax on this line only. Order-wide tax is set on the purchase.',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['material'].required = False
+        self.fields['material'].queryset = Material.objects.filter(is_active=True)
+        _configure_quantity_unit(self)
+        line = self.instance
+        self.received = bool(line and line.pk and (line.quantity_received or Decimal('0')) > Decimal('0'))
+        if self.received:
+            # Lock the fields tied to created inventory/records. Disabled fields keep
+            # their initial value on submit, so they cannot be changed from the form.
+            for name in ('item_type', 'material', 'unit'):
+                self.fields[name].disabled = True
+                self.fields[name].help_text = 'Locked — this line has been received. ' \
+                    'Reverse the receipt in inventory history to change this.'
 
     def clean(self):
         cleaned = super().clean()

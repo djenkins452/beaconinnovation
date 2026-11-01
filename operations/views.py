@@ -25,8 +25,9 @@ from operations.forms import (
     CreateExpenseForm, EquipmentForm, InternalOrderForm, InternalOrderLineFormSet,
     LinkPaymentForm, LocationForm, MaterialForm, OpeningSpoolForm, OpeningStockForm,
     PhysicalProductForm, PrintLogForm, PrintMaterialUseFormSet, PrintProductFormSet,
-    ProductVariantForm, PurchaseForm, PurchaseLineForm, RecipeForm, RecipeMaterialFormSet,
-    ReceiveEquipmentForm, ReceiveFilamentForm, ReceiveStockForm, SupplierForm, WeighSpoolForm,
+    ProductVariantForm, PurchaseEditForm, PurchaseForm, PurchaseLineEditForm, PurchaseLineForm,
+    RecipeForm, RecipeMaterialFormSet, ReceiveEquipmentForm, ReceiveFilamentForm,
+    ReceiveStockForm, SupplierForm, WeighSpoolForm,
 )
 from operations.models import (
     AuditEvent, Equipment, FilamentSpool, InternalOrder, InventoryMovement, Location,
@@ -445,6 +446,54 @@ def purchase_detail(request, purchase_id):
         'linked_total': purchase.linked_payment_total(),
     }
     return render(request, 'operations/purchase_detail.html', ctx)
+
+
+@admin_required
+def purchase_edit(request, purchase_id):
+    """Edit a purchase's header (supplier, dates, order number, order-level
+    shipping/tax/discount, notes, funding). Never receives inventory, creates a
+    payment, or creates a finance expense; documents and payment links are kept."""
+    purchase = get_object_or_404(Purchase.objects.select_related('supplier'), pk=purchase_id)
+    form = PurchaseEditForm(request.POST or None, instance=purchase)
+    if request.method == 'POST' and form.is_valid():
+        # Validation mutates form.instance in place, so hand the service a fresh copy
+        # to compare against (keeps the audit diff of old → new honest).
+        fresh = Purchase.objects.get(pk=purchase.pk)
+        services.edit_purchase(purchase=fresh, actor=request.user, **form.cleaned_data)
+        messages.success(request, 'Purchase updated. No inventory received, no payment or expense created.')
+        return redirect('operations:purchase_detail', purchase_id=purchase.id)
+    return render(request, 'operations/purchase_edit.html',
+                  {'active_nav': 'purchases', 'form': form, 'purchase': purchase,
+                   'has_payments': purchase.payments.exists()})
+
+
+@admin_required
+def line_edit(request, line_id):
+    """Edit a purchase line. Cost/tax/discount/classification/description are always
+    editable; structural fields (item type, material, unit) are locked once the line
+    has been received. The service layer enforces the protection too."""
+    line = get_object_or_404(
+        PurchaseLine.objects.select_related('purchase', 'material'), pk=line_id)
+    form = PurchaseLineEditForm(request.POST or None, instance=line)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            # Validation mutates form.instance in place, so hand the service a fresh
+            # copy to compare against (keeps the audit diff of old → new honest).
+            fresh = PurchaseLine.objects.select_related('purchase').get(pk=line.pk)
+            services.edit_purchase_line(line=fresh, actor=request.user, **form.cleaned_data)
+            if fresh.purchase.payments.exists():
+                messages.warning(request, 'Line updated. A Finance expense is linked to this '
+                                          'purchase — its amount was NOT changed automatically; '
+                                          'adjust it in Finance if needed.')
+            else:
+                messages.success(request, 'Line updated. No inventory movement, payment, or expense changed.')
+            return redirect('operations:purchase_detail', purchase_id=line.purchase_id)
+        except ValidationError as e:
+            for msg in e.messages:
+                form.add_error(None, msg)
+    return render(request, 'operations/line_edit.html',
+                  {'active_nav': 'purchases', 'form': form, 'line': line,
+                   'received': getattr(form, 'received', False)})
 
 
 @admin_required

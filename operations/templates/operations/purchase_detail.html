@@ -4,7 +4,10 @@
 <div class="row-split">
   <h1>{{ purchase.supplier_display }}{% if purchase.order_number %} — #{{ purchase.order_number }}{% endif %}
       {% if purchase.funding_label %}<span class="badge badge-grey">{{ purchase.funding_label }}</span>{% endif %}</h1>
-  <a href="{% url 'operations:purchase_list' %}" class="btn btn-secondary btn-sm">← Purchases</a>
+  <div>
+    <a href="{% url 'operations:purchase_edit' purchase.id %}" class="btn btn-secondary btn-sm">Edit purchase</a>
+    <a href="{% url 'operations:purchase_list' %}" class="btn btn-secondary btn-sm">← Purchases</a>
+  </div>
 </div>
 
 <div class="card">
@@ -23,7 +26,7 @@
   {% if lines %}
   <table>
     <tr><th>Item</th><th>Type</th><th>Use</th><th class="text-right">Ordered</th><th>Delivery</th>
-        <th class="text-right">Unit cost</th><th class="text-right">Line total</th><th>Receive</th></tr>
+        <th class="text-right">Unit cost</th><th class="text-right">Line total</th><th>Actions</th></tr>
     {% for line in lines %}
     <tr>
       <td>{{ line.description }}{% if line.material %}<br><span class="help">{{ line.material }}</span>{% endif %}</td>
@@ -33,12 +36,14 @@
       <td>{% if line.delivery_state == 'received' %}<span class="badge badge-green">Received</span>
           {% elif line.delivery_state == 'unconfirmed' %}<span class="badge badge-amber">Unconfirmed</span>
           {% else %}<span class="badge badge-grey">Not received</span>{% endif %}</td>
-      <td class="text-right">${{ line.unit_cost|floatformat:2 }}</td>
+      <td class="text-right">${{ line.unit_cost|floatformat:2 }}<br><span class="help">per {{ line.unit }}</span></td>
       <td class="text-right">${{ line.line_total|floatformat:2 }}</td>
-      <td>{% if line.item_type != 'other' and line.receipt_state != 'received' %}
-            <a href="{% url 'operations:line_receive' line.id %}" class="btn btn-primary btn-sm">Receive</a>
-          {% elif line.item_type == 'other' %}<span class="text-muted">n/a</span>
-          {% else %}<span class="text-muted">done</span>{% endif %}</td>
+      <td>
+        <a href="{% url 'operations:line_edit' line.id %}" class="btn btn-secondary btn-sm">Edit</a>
+        {% if line.item_type != 'other' and line.receipt_state != 'received' %}
+          <a href="{% url 'operations:line_receive' line.id %}" class="btn btn-primary btn-sm">Receive</a>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </table>
@@ -124,4 +129,26 @@
     <div class="help">Stored privately in the database (same durable, private storage as finance receipts). PDF/JPG/PNG.</div>
   </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Quantity entry: step in whole numbers for indivisible items (spool/pack/roll/each)
+// and allow decimals only for weight/volume/length units. Prevents the up/down arrow
+// from nudging a spool count into thousandths.
+(function () {
+  var DECIMAL_UNITS = ['g', 'kg', 'ml', 'l', 'm'];
+  function sync(sel) {
+    var form = sel.closest('form');
+    if (!form) return;
+    var qty = form.querySelector('[data-qty-input]');
+    if (!qty) return;
+    qty.step = DECIMAL_UNITS.indexOf(sel.value) !== -1 ? 'any' : '1';
+  }
+  document.querySelectorAll('[data-unit-select]').forEach(function (sel) {
+    sync(sel);
+    sel.addEventListener('change', function () { sync(sel); });
+  });
+})();
+</script>
 {% endblock %}

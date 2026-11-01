@@ -771,6 +771,31 @@ This file tracks all changes made by Claude Code during development.
   on PostgreSQL (test_corrections added). Torch "duplicate" investigated — single record,
   one purchase link; no duplicate exists.
 
+## 2026-11-01
+
+### Operations: owner self-service purchase/line editing (no model changes)
+- Files: `operations/services.py` (new `edit_purchase`, `edit_purchase_line` — audited,
+  with received-line protection), `operations/forms.py` (`PurchaseEditForm`,
+  `PurchaseLineEditForm`, shared `_configure_quantity_unit` whole-number vs decimal
+  stepping, clearer quantity/unit/cost labels on `PurchaseLineForm`), `operations/views.py`
+  (`purchase_edit`, `line_edit`; both pass a freshly-loaded object to the service because
+  ModelForm validation mutates the bound instance in place), `operations/urls.py`
+  (`purchases/<id>/edit/`, `lines/<id>/edit/`), templates `purchase_edit.html`,
+  `line_edit.html`, and `purchase_detail.html` (Edit purchase button, per-line Edit link,
+  "per {unit}" price basis, quantity-step script).
+- Migrations: none (code-only; `makemigrations --check` clean).
+- Tests: `operations/tests/test_purchase_edit.py` (10 tests). Full operations suite 63 pass
+  on PostgreSQL.
+- Notes: Editing never receives inventory, creates a payment, or creates a Finance expense,
+  and never rewrites posted inventory movements or linked payments. On a received line the
+  structural fields (item type, material, unit) are locked (UI disabled + service guard);
+  cost/tax/discount/use/description stay editable and quantity_ordered may not drop below
+  what's received. Order-level tax (`Purchase.tax_total`) stays separate from a line's
+  `line_tax` — totals are not double-counted. The reported "0.001 each" was the decimal
+  up-arrow (field `decimal_places=3`); the quantity box now steps in whole numbers for
+  indivisible units and allows decimals only for weight/volume/length. The existing
+  incorrect line was left unchanged for the owner to correct via the new Edit action.
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 

@@ -1,0 +1,63 @@
+{% extends 'operations/base.html' %}
+{% block title %}Edit line{% endblock %}
+{% block content %}
+<div class="row-split">
+  <h1>Edit line</h1>
+  <a href="{% url 'operations:purchase_detail' line.purchase_id %}" class="btn btn-secondary btn-sm">← Back</a>
+</div>
+
+<div class="alert alert-info">
+  <p class="mb-2"><strong>{{ line.description }}</strong> — currently
+    {{ line.quantity_ordered|floatformat:"-3" }} {{ line.unit }} at ${{ line.unit_cost|floatformat:2 }} per {{ line.unit }}
+    (line total ${{ line.line_total|floatformat:2 }}).</p>
+  Editing a line never receives inventory, creates a payment, or creates a Finance expense, and it never
+  rewrites posted inventory movements or linked payments. Order-level tax is set on the purchase, not here.
+</div>
+
+{% if received %}
+<div class="alert alert-warning">
+  This line has already been received ({{ line.quantity_received|floatformat:"-3" }} {{ line.unit }} on hand).
+  The <strong>item type, material and purchase unit are locked</strong> because real inventory was created from
+  them. You can still fix the cost, tax, discount, use classification, description and the ordered quantity
+  (not below what’s already received). To change a locked field, reverse the receipt in
+  <a href="{% url 'operations:movement_list' %}">inventory history</a> first.
+</div>
+{% endif %}
+
+<div class="card" style="max-width:720px;">
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+      <div class="form-group">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">Save changes</button>
+    <a href="{% url 'operations:purchase_detail' line.purchase_id %}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Same whole-number vs decimal quantity stepping as the purchase page.
+(function () {
+  var DECIMAL_UNITS = ['g', 'kg', 'ml', 'l', 'm'];
+  function sync(sel) {
+    var form = sel.closest('form');
+    if (!form) return;
+    var qty = form.querySelector('[data-qty-input]');
+    if (!qty) return;
+    qty.step = DECIMAL_UNITS.indexOf(sel.value) !== -1 ? 'any' : '1';
+  }
+  document.querySelectorAll('[data-unit-select]').forEach(function (sel) {
+    sync(sel);
+    sel.addEventListener('change', function () { sync(sel); });
+  });
+})();
+</script>
+{% endblock %}

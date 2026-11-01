@@ -568,6 +568,125 @@ def reconcile_spool_from_measurement(*, measurement, actor):
 
 
 # =============================================================================
+# Editing purchases / lines (owner self-service corrections — audited)
+# =============================================================================
+
+# Structural fields on a line that are tied to records/movements created when the
+# line was received. They cannot be changed once anything has been received against
+# the line, because posted inventory movements and created spool/stock/equipment
+# records reference them. Cost, classification and description never touch the ledger
+# or linked payments, so they stay editable.
+_LINE_STRUCTURAL_FIELDS = ('item_type', 'material', 'unit')
+_LINE_EDITABLE_FIELDS = (
+    'item_type', 'description', 'material', 'quantity_ordered', 'unit',
+    'unit_cost', 'line_discount', 'line_tax', 'use_type', 'business_pct',
+)
+_PURCHASE_EDITABLE_FIELDS = (
+    'supplier', 'supplier_name', 'order_date', 'order_number', 'product_links',
+    'shipping_total', 'tax_total', 'discount_total', 'notes', 'funding',
+)
+
+
+def _repr(value):
+    """Short, stable string for an audit change entry (handles model instances)."""
+    if value is None:
+        return ''
+    pk = getattr(value, 'pk', None)
+    return str(value) if pk is None else f'{value} ({pk})'
+
+
+@transaction.atomic
+def edit_purchase(*, purchase, actor, **fields):
+    """Edit a purchase's header fields (supplier, order date/number, order-level
+    shipping/tax/discount, notes, funding designation).
+
+    Editing a purchase NEVER receives inventory, creates a payment, or creates a
+    finance expense. Attached documents and existing payment links are left exactly
+    as they are. Order-level tax lives in ``tax_total`` and is kept separate from a
+    line's own ``line_tax`` — the two are never merged, so order-level tax is not
+    counted again as line tax. Every change is recorded as one audit event.
+    """
+    changes = {}
+    for key in _PURCHASE_EDITABLE_FIELDS:
+        if key not in fields:
+            continue
+        new = fields[key]
+        old = getattr(purchase, key)
+        if key == 'supplier':
+            if (old.pk if old else None) == (new.pk if new else None):
+                continue
+        elif old == new:
+            continue
+        changes[key] = [_repr(old), _repr(new)]
+        setattr(purchase, key, new)
+    if changes:
+        purchase.save(update_fields=list(changes.keys()))
+        record_audit(actor, 'update', purchase, summary='Purchase edited', changes=changes)
+    return purchase
+
+
+@transaction.atomic
+def edit_purchase_line(*, line, actor, **fields):
+    """Edit a single purchase line with inventory/financial-history protection.
+
+    * Description, unit cost, line discount, line tax and use classification are
+      ALWAYS editable — none of them touch posted inventory movements or linked
+      payments, they only correct the cost basis and classification of the line.
+    * On a line that has already been received (``quantity_received > 0``), the
+      structural fields (``item_type``, ``material``, ``unit``) are LOCKED, because
+      posted movements and the spool/stock/equipment records created from the line
+      reference them; changing them would orphan or misattribute real inventory.
+      Attempting to change one raises ``ValidationError`` pointing at the reversal
+      workflow (reverse the receipt in inventory history first).
+    * ``quantity_ordered`` may be corrected at any time but, on a received line, may
+      not drop below the quantity already received.
+
+    This never posts, edits, or deletes an inventory movement, and never creates a
+    payment or expense — posted ledger rows and linked payments are left untouched.
+    Order-level tax stays on the purchase; only the line's own ``line_tax`` is
+    touched here, so order-level tax is never counted again as line tax.
+    """
+    received = (line.quantity_received or ZERO) > ZERO
+    changes = {}
+    for key in _LINE_EDITABLE_FIELDS:
+        if key not in fields:
+            continue
+        new = fields[key]
+        old = getattr(line, key)
+        if key == 'material':
+            if (old.pk if old else None) == (new.pk if new else None):
+                continue
+        elif old == new:
+            continue
+
+        if received and key in _LINE_STRUCTURAL_FIELDS:
+            raise ValidationError(
+                f'"{line._meta.get_field(key).verbose_name or key}" cannot be changed on a '
+                f'line that has already been received. Reverse the receipt in inventory '
+                f'history first, then edit the line.')
+        if key == 'quantity_ordered':
+            received_qty = line.quantity_received or ZERO
+            if received and Decimal(new) < received_qty:
+                raise ValidationError(
+                    f'Ordered quantity cannot be less than the {received_qty} already '
+                    f'received. Reverse the receipt first to lower it further.')
+
+        changes[key] = [_repr(old), _repr(new)]
+        setattr(line, key, new)
+
+    if changes:
+        # Keep business_pct consistent with use_type (model rule), then persist only
+        # the fields that changed (+ business_pct when use_type drove it).
+        line.clean()
+        save_fields = set(changes.keys())
+        if 'use_type' in changes:
+            save_fields.add('business_pct')
+        line.save(update_fields=list(save_fields))
+        record_audit(actor, 'update', line, summary='Purchase line edited', changes=changes)
+    return line
+
+
+# =============================================================================
 # Finance bridge (the only money touch — manual by design)
 # =============================================================================
 
