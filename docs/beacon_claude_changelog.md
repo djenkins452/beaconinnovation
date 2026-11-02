@@ -6,6 +6,32 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-11-02
 
+### Operations: Purchases page redesigned as per-order cards
+- **What:** presentation-only cleanup of the Purchases list. Each order is now its own
+  card: a header with the supplier + linked order number on the left and the total aligned
+  right; a quieter secondary line with labeled **Date**, **Funding**, and overall
+  **Receiving** status; then a consistent item table — **Item | Qty | Status | Actions** —
+  with a header row. Descriptions get most of the width and wrap; quantities are
+  right-aligned (tabular numerals); statuses and actions line up across rows.
+- **Tidier rows:** received items show a single status badge and **no** dash or empty
+  action placeholder. The catalog material name is shown as a sub-note only when it adds
+  information (new `_catalog_adds_info` suppresses near-duplicates like "Bambu Lab PLA
+  Basic Cyan" under "Bambu PLA Basic Cyan"). Receive + **Options** stay together in the
+  Actions column; the whole-order "Receive remaining on this order" sits in a card footer,
+  clearly tied to that order. The intro paragraph was shortened to one line.
+- **Responsive:** a CSS grid item layout collapses to a stacked layout under 680px
+  (description full width, qty/status inline, actions below) — no overlapping controls and
+  no excessive horizontal scrolling. Beacon colors/spacing reused; styles/scripts moved
+  into the template's `extra_css`/`extra_js` blocks.
+- **Behavior unchanged:** same receiving services/endpoints, partial quantities, refill
+  options, cancellation restrictions, idempotency tokens, safe `next` scroll-preserving
+  redirect, and active-superuser-only access. Canceled orders render subdued but readable.
+  No change to purchase data, totals calculations, or inventory logic.
+- **Files:** `operations/templates/operations/purchase_list.html` (card layout + grid +
+  responsive CSS), `operations/views.py` (`_catalog_adds_info`; `catalog`/`show_catalog`
+  per row), `operations/tests/test_purchase_list.py` (+1 test; 12 total). Full operations
+  suite: 132 passing.
+
 ### Operations: receive delivered items from the Purchases list
 - **What:** the Purchases list now shows each ordered item's description and quantity on
   a compact row beneath its order, each with its own receiving status badge and a receive

@@ -6,6 +6,7 @@ Every view is gated by :func:`admin_required` (authenticated **and** ``is_active
 ``operations.services`` so audit, the ledger, idempotency and the finance bridge
 are always honoured.
 """
+import re
 import uuid
 from decimal import Decimal
 from functools import wraps
@@ -540,6 +541,24 @@ def _order_badge(purchase, states):
     return 'partial'
 
 
+def _catalog_adds_info(desc, catalog):
+    """Show the catalog material name as a sub-note only when it adds information — i.e.
+    it is not a near-duplicate of the line description. Compares word sets and hides the
+    catalog when ≥80% of its words already appear in the description (so 'Bambu Lab PLA
+    Basic Cyan' under 'Bambu PLA Basic Cyan (1 kg refill)' is suppressed, but a genuinely
+    different catalog name is still shown)."""
+    if not catalog:
+        return False
+    tokens = lambda s: {t for t in re.split(r'[^a-z0-9]+', s.lower()) if len(t) > 1}
+    ct = tokens(catalog)
+    if not ct:
+        return False
+    dt = tokens(desc)
+    if not dt:
+        return True
+    return (len(ct & dt) / len(ct)) < 0.8
+
+
 def _attach_item_rows(purchase):
     """Attach compact per-item rows + a derived order badge to a purchase for the list.
 
@@ -551,12 +570,14 @@ def _attach_item_rows(purchase):
     rows, quick_count, quick_filament, states = [], 0, False, []
     for ln in purchase.lines.all():
         status = ln.receiving_status
-        desc = ln.description or (ln.material.name if ln.material else ln.get_item_type_display())
+        catalog = str(ln.material) if ln.material else ''
+        desc = ln.description or catalog or ln.get_item_type_display()
         quickable = status == 'outstanding' and ln.item_type in ('filament', 'stock')
         rows.append({
             'ln': ln, 'status': status,
             'label': PurchaseLine.RECEIVING_LABELS.get(status, 'Not received'),
-            'desc': desc, 'quickable': quickable,
+            'desc': desc, 'catalog': catalog, 'show_catalog': _catalog_adds_info(desc, catalog),
+            'quickable': quickable,
             'is_filament': ln.item_type == 'filament', 'is_equipment': ln.item_type == 'equipment',
             'is_outstanding': status == 'outstanding', 'is_unconfirmed': status == 'unconfirmed',
             'is_cancelled': status == 'cancelled', 'is_received': status == 'received',

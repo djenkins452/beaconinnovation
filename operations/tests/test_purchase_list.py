@@ -183,6 +183,20 @@ class PurchaseListViewTests(TestCase):
         self.assertIn(reverse('operations:dashboard'), resp.url)        # falls back to dashboard
         self.assertNotIn('evil.example.com', resp.url)
 
+    def test_catalog_shown_only_when_it_adds_info(self):
+        from operations.views import _catalog_adds_info
+        # Near-duplicate of the description → suppressed.
+        self.assertFalse(_catalog_adds_info('Bambu PLA Basic Cyan (1 kg refill) — gift',
+                                            'Bambu Lab PLA Basic Cyan'))
+        self.assertFalse(_catalog_adds_info('Cable ties', 'Cable ties'))
+        # Genuinely different catalog name → shown.
+        self.assertTrue(_catalog_adds_info('MarsWork Quick-Swap Reusable Spool, 4 pcs',
+                                           'Quick-swap reusable spools (4-pack, empty cores)'))
+        self.assertTrue(_catalog_adds_info('BNUOK 120pcs hex socket head cap screws',
+                                           'M3×40mm cap screws (120-pack)'))
+        # No material → nothing to show.
+        self.assertFalse(_catalog_adds_info('Some item', ''))
+
     def test_description_falls_back_to_material_name(self):
         mat = _stock_material('Named Material', 'NM1')
         purchase = m.Purchase.objects.create(supplier_name='Amazon', order_number='A-11')
