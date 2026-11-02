@@ -6,6 +6,36 @@ This file tracks all changes made by Claude Code during development.
 
 ## 2026-11-02
 
+### Operations: receive delivered items from the Purchases list
+- **What:** the Purchases list now shows each ordered item's description and quantity on
+  a compact row beneath its order, each with its own receiving status badge and a receive
+  action — so routine receiving no longer requires opening every order. Long descriptions
+  wrap and stay readable inline (the catalog material shows as a sub-note).
+- **Reuses existing receiving — no second implementation:** the per-line **Receive**
+  (full outstanding + partial/refill via **Options**), per-line **Confirm received**, and
+  the whole-order **Receive remaining on this order** (shown for 2+ quick-receivable
+  lines) post to the *same* dashboard endpoints and `operations.services` functions as the
+  dashboard fast-receive. The only view change was adding a safe same-origin `next`
+  redirect (`_safe_next`, validated with `url_has_allowed_host_and_scheme`) so posting from
+  the list returns to the list instead of the dashboard. Idempotency tokens, audit, the
+  ledger and the finance bridge are all unchanged.
+- **Stays put:** after receiving/confirming, the owner lands back on the Purchases list
+  with scroll position preserved (sessionStorage, mirroring the dashboard).
+- **Canceled lines:** remain visibly canceled (red badge, struck-through description) and
+  expose no receive action; the receiving guards still reject them server-side.
+- **No extra query per row:** the list prefetches `lines__material` (description fallback
+  is free) and computes each line's receiving status exactly once in the view
+  (`_attach_item_rows` / `_order_badge`), deriving the order badge from those statuses.
+- **Equipment** outstanding lines link to the existing "Receive (details)…" flow;
+  `other` (no-inventory) lines show a muted dash.
+- **Files:** `operations/views.py` (`purchase_list`, `_attach_item_rows`, `_order_badge`,
+  `_safe_next`, `next` honored by `dashboard_receive_line`/`dashboard_confirm_line`/
+  `dashboard_receive_purchase`), `operations/templates/operations/purchase_list.html`
+  (item sub-rows + receive controls + scroll JS), `operations/tests/test_purchase_list.py`
+  (11 tests: single/multi/partial/unconfirmed/canceled, receive-stays-on-list, unsafe-next
+  rejected, description fallback). No model or migration changes. Full operations suite:
+  131 passing.
+
 ### Operations: audited purchase cancellation (whole order + per-line)
 - **What:** owner self-service cancellation for purchases that were canceled with the
   supplier (e.g. Home Depot WH49872139). A **"Cancel purchase"** action on the purchase

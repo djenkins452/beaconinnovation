@@ -8,25 +8,95 @@
      <span class="help">(recorded acquisition cost only — not profit, tax deduction, or verified cash paid;
      {% if cancelled_count %}excludes {{ cancelled_count }} canceled order{{ cancelled_count|pluralize }}{% else %}canceled orders excluded{% endif %})</span></p>
   {% endif %}
+  <p class="help mb-2">Receive delivered items right here — no need to open each order. Filament arrives as sealed
+     spools with grams untracked; open <em>Options</em> for a partial amount or to mark refills. Canceled lines
+     stay visible and cannot be received.</p>
   {% if page.object_list %}
-  <table>
+  <table class="purchases">
     <tr><th>Date</th><th>Supplier</th><th>Order #</th><th class="text-right">Total</th><th>Receiving</th><th>Funding</th></tr>
     {% for p in page.object_list %}
-    <tr>
+    <tr class="order-row">
       <td>{{ p.order_date }}</td>
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.supplier_display }}</a></td>
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.order_number|default:"—" }}</a></td>
       <td class="text-right">${{ p.order_total|floatformat:2 }}{% if p.is_cancelled %}<br><span class="help">canceled — excluded</span>{% endif %}</td>
       <td>
-        {% if p.receiving_status == 'cancelled' %}<span class="badge badge-red">Canceled</span>
-        {% elif p.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
-        {% elif p.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
-        {% elif p.receiving_status == 'partial' %}<span class="badge badge-amber">Partial</span>
-        {% elif p.receiving_status == 'none' %}<span class="badge badge-grey">Not received</span>
+        {% if p.order_status == 'cancelled' %}<span class="badge badge-red">Canceled</span>
+        {% elif p.order_status == 'received' %}<span class="badge badge-green">Received</span>
+        {% elif p.order_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
+        {% elif p.order_status == 'partial' %}<span class="badge badge-amber">Partial</span>
+        {% elif p.order_status == 'none' %}<span class="badge badge-grey">Not received</span>
         {% else %}<span class="badge badge-grey">No lines</span>{% endif %}
       </td>
       <td>{% if p.funding_label %}<span class="badge badge-grey">{{ p.funding_label }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
     </tr>
+    {% if p.item_rows %}
+    <tr class="items-row">
+      <td colspan="6">
+        <table class="items">
+          {% for row in p.item_rows %}
+          <tr class="{% if row.is_cancelled %}canceled-line{% endif %}">
+            <td class="item-desc">{{ row.desc }}{% if row.ln.material and row.desc != row.ln.material.name %}<br><span class="help">{{ row.ln.material }}</span>{% endif %}</td>
+            <td class="text-right nowrap">{{ row.ln.quantity_ordered|floatformat:"-3" }} {{ row.ln.unit }}</td>
+            <td class="nowrap">
+              {% if row.is_cancelled %}<span class="badge badge-red">Canceled</span>
+              {% elif row.is_received %}<span class="badge badge-green">Received</span>
+              {% elif row.is_unconfirmed %}<span class="badge badge-amber">Delivery unconfirmed</span>
+              {% elif row.status == 'partial' %}<span class="badge badge-amber">Partially received</span>
+              {% elif row.is_outstanding %}<span class="badge badge-grey">Not received</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="item-action">
+              {% if row.is_cancelled %}
+                <span class="text-muted">—</span>
+              {% elif row.is_unconfirmed %}
+                <form method="post" action="{% url 'operations:dashboard_confirm_line' row.ln.id %}" class="js-keep-scroll" style="display:inline;">
+                  {% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}">
+                  <button type="submit" class="btn btn-primary btn-sm">Confirm received</button>
+                </form>
+              {% elif row.quickable %}
+                <form method="post" action="{% url 'operations:dashboard_receive_line' row.ln.id %}" class="js-keep-scroll" style="display:inline-block;">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ next_url }}">
+                  <input type="hidden" name="idempotency_key" value="{{ row.token }}">
+                  <button type="submit" class="btn btn-primary btn-sm">Receive {{ row.outstanding|floatformat:"-3" }} {{ row.ln.unit }}</button>
+                  <details style="display:inline-block;margin-left:.4rem;vertical-align:middle;">
+                    <summary class="help" style="cursor:pointer;display:inline;">Options</summary>
+                    <div style="margin-top:.4rem;">
+                      <label class="help">Receive quantity
+                        <input type="number" name="quantity" value="{{ row.outstanding|floatformat:"-3" }}"
+                               min="0" step="{% if row.is_filament %}1{% else %}any{% endif %}"
+                               class="form-control" style="max-width:120px;display:inline-block;">
+                      </label>
+                      {% if row.is_filament %}
+                      <label class="help" style="display:block;margin-top:.3rem;">
+                        <input type="checkbox" name="is_refill"> These are refills (no physical spool core)
+                      </label>
+                      {% endif %}
+                    </div>
+                  </details>
+                </form>
+              {% elif row.is_equipment and row.is_outstanding %}
+                <a href="{% url 'operations:line_receive' row.ln.id %}" class="btn btn-secondary btn-sm">Receive (details)…</a>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% if p.quick_group %}
+        <form method="post" action="{% url 'operations:dashboard_receive_purchase' p.id %}" class="js-keep-scroll" style="margin-top:.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next_url }}">
+          <input type="hidden" name="idempotency_key" value="{{ p.quick_group.token }}">
+          {% if p.quick_group.filament %}<label class="help" style="margin-right:.4rem;"><input type="checkbox" name="is_refill"> refills</label>{% endif %}
+          <button type="submit" class="btn btn-secondary btn-sm">Receive remaining on this order ({{ p.quick_group.count }} item{{ p.quick_group.count|pluralize }})</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endif %}
     {% endfor %}
   </table>
   <div class="pagination">
@@ -36,4 +106,34 @@
   </div>
   {% else %}<p class="text-muted">No purchases yet.</p>{% endif %}
 </div>
+
+<style>
+  table.purchases tr.order-row > td { border-bottom: none; }
+  table.purchases tr.items-row > td { padding-top: 0; padding-bottom: 1rem; }
+  table.items { width: 100%; margin: 0; background: transparent; }
+  table.items td { border: none; padding: .2rem .5rem .2rem 0; vertical-align: top; font-size: .95em; }
+  table.items td.item-desc { width: 55%; white-space: normal; word-break: break-word; }
+  table.items tr.canceled-line td.item-desc { text-decoration: line-through; color: var(--muted, #888); }
+  .nowrap { white-space: nowrap; }
+</style>
+
+<script>
+// Keep scroll position across a receive/confirm POST+redirect so receiving from the
+// list never jumps back to the top (mirrors the dashboard's behaviour).
+(function () {
+  var KEY = 'ops-purchases-scroll';
+  document.querySelectorAll('form.js-keep-scroll').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
+    });
+  });
+  try {
+    var y = sessionStorage.getItem(KEY);
+    if (y !== null) {
+      sessionStorage.removeItem(KEY);
+      window.scrollTo(0, parseInt(y, 10) || 0);
+    }
+  } catch (e) {}
+})();
+</script>
 {% endblock %}

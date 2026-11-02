@@ -14,10 +14,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from finance.forms import validate_receipt_file
 from operations import services
@@ -138,6 +139,17 @@ def _back_to_receiving():
     return redirect(reverse('operations:dashboard') + '#ops-receiving')
 
 
+def _safe_next(request, default):
+    """Redirect to a POSTed ``next`` path when it is safe and same-origin, otherwise to
+    ``default`` (a response). Lets the dashboard's fast-receive endpoints be reused from
+    the Purchases list and return the owner there — no second receiving code path."""
+    nxt = (request.POST.get('next') or '').strip()
+    if nxt and url_has_allowed_host_and_scheme(
+            nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(nxt)
+    return default
+
+
 def _parse_optional_quantity(request):
     """A blank/absent quantity means 'receive the full outstanding amount'."""
     raw = (request.POST.get('quantity') or '').strip()
@@ -173,7 +185,7 @@ def dashboard_receive_line(request, line_id):
                                           'No expense created.')
         except ValidationError as e:
             messages.error(request, '; '.join(e.messages))
-    return _back_to_receiving()
+    return _safe_next(request, _back_to_receiving())
 
 
 @admin_required
@@ -187,7 +199,7 @@ def dashboard_confirm_line(request, line_id):
             messages.success(request, f'"{line.description}" confirmed received — now counted on hand.')
         except ValidationError as e:
             messages.error(request, '; '.join(e.messages))
-    return _back_to_receiving()
+    return _safe_next(request, _back_to_receiving())
 
 
 @admin_required
@@ -213,7 +225,7 @@ def dashboard_receive_purchase(request, purchase_id):
             messages.success(request, msg)
         except ValidationError as e:
             messages.error(request, '; '.join(e.messages))
-    return _back_to_receiving()
+    return _safe_next(request, _back_to_receiving())
 
 
 # =============================================================================
@@ -510,19 +522,75 @@ def opening_stock(request):
 # Purchases
 # =============================================================================
 
+def _order_badge(purchase, states):
+    """Derive the whole-order receiving badge from its live lines' states — same rule
+    as :attr:`Purchase.receiving_status`, computed here from statuses we already have so
+    the list never evaluates a line's status twice."""
+    if purchase.is_cancelled:
+        return 'cancelled'
+    if not states:
+        return 'empty'
+    s = set(states)
+    if s == {'received'}:
+        return 'received'
+    if s <= {'outstanding'}:
+        return 'none'
+    if s <= {'unconfirmed'}:
+        return 'unconfirmed'
+    return 'partial'
+
+
+def _attach_item_rows(purchase):
+    """Attach compact per-item rows + a derived order badge to a purchase for the list.
+
+    Mirrors the dashboard's fast-receive affordances by reusing its endpoints/services:
+    each not-received filament/stock line is quick-receivable, each line's receiving
+    status is computed exactly once (no extra query per rendered row), and a whole-order
+    'receive remaining' is offered when 2+ lines are quick-receivable.
+    """
+    rows, quick_count, quick_filament, states = [], 0, False, []
+    for ln in purchase.lines.all():
+        status = ln.receiving_status
+        desc = ln.description or (ln.material.name if ln.material else ln.get_item_type_display())
+        quickable = status == 'outstanding' and ln.item_type in ('filament', 'stock')
+        rows.append({
+            'ln': ln, 'status': status,
+            'label': PurchaseLine.RECEIVING_LABELS.get(status, 'Not received'),
+            'desc': desc, 'quickable': quickable,
+            'is_filament': ln.item_type == 'filament', 'is_equipment': ln.item_type == 'equipment',
+            'is_outstanding': status == 'outstanding', 'is_unconfirmed': status == 'unconfirmed',
+            'is_cancelled': status == 'cancelled', 'is_received': status == 'received',
+            'outstanding': ln.quantity_outstanding, 'token': uuid.uuid4().hex,
+        })
+        if ln.item_type != 'other' and not ln.is_cancelled:
+            states.append(status)
+        if quickable:
+            quick_count += 1
+            quick_filament = quick_filament or ln.item_type == 'filament'
+    purchase.item_rows = rows
+    purchase.order_status = _order_badge(purchase, states)
+    purchase.quick_group = ({'token': uuid.uuid4().hex, 'count': quick_count,
+                             'filament': quick_filament} if quick_count >= 2 else None)
+
+
 @admin_required
 def purchase_list(request):
     purchases = (Purchase.objects.select_related('supplier')
-                 .prefetch_related('lines', 'lines__spools', 'lines__movements__stock_item', 'payments')
+                 .prefetch_related(
+                     Prefetch('lines', queryset=PurchaseLine.objects.select_related('material')),
+                     'lines__spools', 'lines__movements__stock_item', 'payments')
                  .all())
     # Active total excludes canceled orders/lines; each row still shows its original total.
     total_recorded = sum((p.active_order_total() for p in purchases), Decimal('0'))
     cancelled_count = sum(1 for p in purchases if p.is_cancelled)
     paginator = Paginator(purchases, 25)
     page = paginator.get_page(request.GET.get('page'))
+    # Compact item rows + fast-receive affordances for the orders on THIS page only.
+    for p in page.object_list:
+        _attach_item_rows(p)
     return render(request, 'operations/purchase_list.html',
                   {'active_nav': 'purchases', 'page': page, 'total_recorded': total_recorded,
-                   'cancelled_count': cancelled_count})
+                   'cancelled_count': cancelled_count, 'next_url': request.get_full_path()})
 
 
 @admin_required
