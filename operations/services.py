@@ -369,6 +369,143 @@ def _advance_received(line, delta, movement):
 
 
 # =============================================================================
+# Fast dashboard receiving (one-click defaults; reuses the receive services)
+# =============================================================================
+
+def default_receiving_location():
+    """The location routine receiving defaults to. When there is exactly one active
+    location (the common case — "Home Office / Print Room"), use it; otherwise prefer
+    one whose name looks like the print room / home office; else the first active one.
+    Returns ``None`` only when no active location exists."""
+    locs = list(Location.objects.filter(is_active=True))
+    if len(locs) == 1:
+        return locs[0]
+    for needle in ('print room', 'home office'):
+        for loc in locs:
+            if needle in loc.name.lower():
+                return loc
+    return locs[0] if locs else None
+
+
+@transaction.atomic
+def quick_receive_line(*, line, actor, quantity=None, is_refill=False,
+                       location=None, idempotency_key=None):
+    """Receive a filament or stock line with everyday defaults, for the dashboard.
+
+    * Receives the **full outstanding quantity** by default; pass ``quantity`` for a
+      partial receipt. Equipment and ``other`` lines are not quick-receivable (they
+      need details / have nothing to receive) and raise ``ValidationError``.
+    * **Filament** — creates that many spools (or refills, preserving the distinction),
+      status *sealed/new*, **grams untracked** (no weighing, no slicer data, no manual
+      spool ids), each delivery-confirmed (you are confirming arrival). No finance
+      expense. Spool ids are derived from the line and the submission token, so a
+      double-click / retry re-uses the same ids and never creates duplicate spools.
+    * **Stock** — posts ONE ``purchase_receipt`` movement for the quantity, idempotent
+      on the submission token, delivery-confirmed. No finance expense.
+    * Costs, funding, payments, finance expenses and attached documents are never
+      touched. The line row is locked for the duration so concurrent submissions are
+      serialized.
+
+    Returns a dict summarising what was received: ``{'kind', 'created', 'quantity'}``.
+    """
+    # Lock + re-read the line so two concurrent receives on it are serialized and
+    # each sees the other's committed effect (outstanding is read under the lock).
+    # of=('self',) locks only the line row — Postgres cannot apply FOR UPDATE across
+    # the nullable material join.
+    line = (PurchaseLine.objects.select_for_update(of=('self',))
+            .select_related('purchase', 'material').get(pk=line.pk))
+
+    if line.item_type == 'other':
+        raise ValidationError('This line has nothing to receive into inventory.')
+    if line.item_type == 'equipment':
+        raise ValidationError('Equipment needs its details (name, type) — use the '
+                              'full Receive form for equipment lines.')
+    if line.material is None:
+        raise ValidationError('This line has no material set; set one before receiving.')
+
+    outstanding = line.quantity_outstanding
+    if location is None:
+        location = default_receiving_location()
+    sub = (idempotency_key or uuid_hex()).replace(':', '').replace('-', '')[:12]
+
+    if line.item_type == 'stock':
+        # Idempotent retry of THIS submission: the receipt movement carries the key.
+        if idempotency_key and InventoryMovement.objects.filter(
+                idempotency_key=idempotency_key).exists():
+            return {'kind': 'stock', 'created': 0, 'quantity': ZERO}
+        qty = Decimal(quantity) if quantity is not None else outstanding
+        if qty <= ZERO:
+            raise ValidationError('Nothing left to receive on this line.')
+        receive_stock_line(line=line, quantity=qty, actor=actor, location=location,
+                           idempotency_key=idempotency_key)
+        return {'kind': 'stock', 'created': 1, 'quantity': qty}
+
+    # Filament: whole spools/refills, grams untracked.
+    # Idempotent retry of THIS submission: its spools already exist (deterministic ids).
+    if idempotency_key and FilamentSpool.objects.filter(
+            spool_uid=f'R-{line.pk.hex[:8]}-{sub}-1').exists():
+        return {'kind': 'filament', 'created': 0, 'quantity': ZERO, 'is_refill': is_refill}
+    count = int(quantity) if quantity is not None else int(outstanding)
+    if count <= 0:
+        raise ValidationError('Nothing left to receive on this line.')
+    created = 0
+    for i in range(count):
+        # line pk keeps ids unique across lines; sub keeps repeated genuine receipts
+        # distinct while making a double-click of THIS submission a no-op (idempotent
+        # by spool id in receive_filament_spool).
+        uid = f'R-{line.pk.hex[:8]}-{sub}-{i + 1}'
+        before = FilamentSpool.objects.filter(spool_uid=uid).exists()
+        receive_filament_spool(
+            line=line, spool_uid=uid, actor=actor, starting_weight_g=ZERO,
+            remaining_unknown=True, is_refill=is_refill, status='sealed',
+            location=location, delivery_confirmed=True)
+        if not before:
+            created += 1
+    return {'kind': 'filament', 'created': created, 'quantity': Decimal(count),
+            'is_refill': is_refill}
+
+
+@transaction.atomic
+def quick_receive_purchase(*, purchase, actor, is_refill=False, location=None,
+                           idempotency_key=None):
+    """Receive every still-outstanding filament/stock line on ONE order, with the
+    :func:`quick_receive_line` defaults. Scoped strictly to this order's lines, so it
+    can never touch unrelated purchases.
+
+    * Only lines that are **not received yet** (``receiving_status == 'outstanding'``)
+      are received. Lines already delivery-unconfirmed are left for the Confirm action
+      (so nothing is received twice), and equipment lines are reported as skipped
+      (receive them individually with their details).
+    * ``is_refill`` applies to all filament lines on the order (a single order usually
+      ships all refills or all spools). Idempotent: a per-line token derived from the
+      submission token makes a double-submit a safe no-op.
+
+    Returns a summary dict: ``{'spools', 'stock_lines', 'skipped_equipment'}``.
+    """
+    token = idempotency_key or uuid_hex()
+    summary = {'spools': 0, 'stock_lines': 0, 'skipped_equipment': 0}
+    for line in purchase.lines.select_related('material').all():
+        if line.item_type == 'other':
+            continue
+        if line.receiving_status != 'outstanding':
+            continue
+        if line.item_type == 'equipment':
+            summary['skipped_equipment'] += 1
+            continue
+        result = quick_receive_line(
+            line=line, actor=actor, is_refill=is_refill, location=location,
+            idempotency_key=f'{token}-{line.pk.hex[:8]}')
+        if result['kind'] == 'filament':
+            summary['spools'] += result['created']
+        else:
+            summary['stock_lines'] += 1
+    record_audit(actor, 'update', purchase,
+                 summary=f"Received remaining order ({summary['spools']} spool(s), "
+                         f"{summary['stock_lines']} stock line(s))")
+    return summary
+
+
+# =============================================================================
 # Printing (consumption + waste, each counted once; failures still consume)
 # =============================================================================
 

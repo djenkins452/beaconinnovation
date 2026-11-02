@@ -26,28 +26,83 @@
 </div>
 
 <!-- 2) What is arriving / awaiting confirmation -->
-<div class="card">
+<div class="card" id="ops-receiving">
   <h2>Arriving &amp; awaiting delivery</h2>
-  {% if awaiting_lines %}
-    <p class="mb-2"><strong>Awaiting delivery confirmation</strong> (ordered; not yet confirmed — not counted as on hand):</p>
+
+  {% if outstanding_lines %}
+    <p class="mb-2"><strong>Not received yet</strong> — click <em>Receive</em> to log the full
+       outstanding amount. Filament arrives as sealed spools with grams untracked; open
+       <em>Options</em> for a partial amount or to mark it as refills.</p>
     <table>
-      <tr><th>Item</th><th>Supplier</th><th>Order</th></tr>
+      <tr><th>Item</th><th>Supplier</th><th>Order</th><th class="text-right">Outstanding</th><th>Receive</th></tr>
+      {% for row in outstanding_lines %}
+      <tr>
+        <td>{{ row.ln.description }}{% if row.ln.material %}<br><span class="help">{{ row.ln.material }}</span>{% endif %}</td>
+        <td>{{ row.ln.purchase.supplier_display }}</td>
+        <td><a href="{% url 'operations:purchase_detail' row.ln.purchase_id %}">{{ row.ln.purchase.order_number|default:"—" }}</a></td>
+        <td class="text-right">{{ row.outstanding|floatformat:"-3" }} {{ row.ln.unit }}</td>
+        <td>
+          {% if row.quickable %}
+          <form method="post" action="{% url 'operations:dashboard_receive_line' row.ln.id %}" class="js-keep-scroll" style="display:inline-block;">
+            {% csrf_token %}
+            <input type="hidden" name="idempotency_key" value="{{ row.token }}">
+            <button type="submit" class="btn btn-primary btn-sm">Receive {{ row.outstanding|floatformat:"-3" }} {{ row.ln.unit }}</button>
+            <details style="display:inline-block;margin-left:.4rem;vertical-align:middle;">
+              <summary class="help" style="cursor:pointer;display:inline;">Options</summary>
+              <div style="margin-top:.4rem;">
+                <label class="help">Receive quantity
+                  <input type="number" name="quantity" value="{{ row.outstanding|floatformat:"-3" }}"
+                         min="0" step="{% if row.is_filament %}1{% else %}any{% endif %}"
+                         class="form-control" style="max-width:120px;display:inline-block;">
+                </label>
+                {% if row.is_filament %}
+                <label class="help" style="display:block;margin-top:.3rem;">
+                  <input type="checkbox" name="is_refill"> These are refills (no physical spool core)
+                </label>
+                {% endif %}
+              </div>
+            </details>
+          </form>
+          {% elif row.is_equipment %}
+          <a href="{% url 'operations:line_receive' row.ln.id %}" class="btn btn-secondary btn-sm">Receive (details)…</a>
+          {% else %}<span class="text-muted">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if receive_order_groups %}
+    <p class="help mt-2">Whole order at once (full outstanding amount for every filament/stock line on that order only):</p>
+    <div class="mb-2">
+      {% for g in receive_order_groups %}
+      <form method="post" action="{% url 'operations:dashboard_receive_purchase' g.purchase.id %}" class="js-keep-scroll" style="display:inline-block;margin:0 .5rem .5rem 0;">
+        {% csrf_token %}
+        <input type="hidden" name="idempotency_key" value="{{ g.token }}">
+        {% if g.filament %}<label class="help" style="margin-right:.3rem;"><input type="checkbox" name="is_refill"> refills</label>{% endif %}
+        <button type="submit" class="btn btn-secondary btn-sm">Receive remaining — {{ g.purchase.supplier_display }}{% if g.purchase.order_number %} #{{ g.purchase.order_number }}{% endif %} ({{ g.quick }} item{{ g.quick|pluralize }})</button>
+      </form>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {% if awaiting_lines %}
+    <p class="mb-2 mt-3"><strong>Awaiting delivery confirmation</strong> (recorded; not yet confirmed — not counted as on hand).
+       Click <em>Confirm received</em> when it actually arrives — this uses the existing records, it does not create duplicates.</p>
+    <table>
+      <tr><th>Item</th><th>Supplier</th><th>Order</th><th>Confirm</th></tr>
       {% for ln in awaiting_lines %}
       <tr><td>{{ ln.description }}</td><td>{{ ln.purchase.supplier_display }}</td>
-          <td><a href="{% url 'operations:purchase_detail' ln.purchase_id %}">{{ ln.purchase.order_number }}</a></td></tr>
+          <td><a href="{% url 'operations:purchase_detail' ln.purchase_id %}">{{ ln.purchase.order_number|default:"—" }}</a></td>
+          <td>
+            <form method="post" action="{% url 'operations:dashboard_confirm_line' ln.id %}" class="js-keep-scroll" style="display:inline;">
+              {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Confirm received</button>
+            </form>
+            <a href="{% url 'operations:purchase_detail' ln.purchase_id %}" class="help" style="margin-left:.4rem;">correct…</a>
+          </td></tr>
       {% endfor %}
     </table>
   {% endif %}
-  {% if outstanding_lines %}
-    <p class="mb-2 mt-3"><strong>Not received yet</strong> (arriving / pickup pending):</p>
-    <table>
-      <tr><th>Item</th><th>Supplier</th><th>Order</th></tr>
-      {% for ln in outstanding_lines %}
-      <tr><td>{{ ln.description }}</td><td>{{ ln.purchase.supplier_display }}</td>
-          <td><a href="{% url 'operations:purchase_detail' ln.purchase_id %}">{{ ln.purchase.order_number }}</a></td></tr>
-      {% endfor %}
-    </table>
-  {% endif %}
+
   {% if not awaiting_lines and not outstanding_lines %}<p class="text-muted">Nothing outstanding — everything ordered has been received.</p>{% endif %}
 </div>
 
@@ -111,4 +166,24 @@
   {% endif %}
   {% if not in_progress_prints and not recent_prints %}<p class="text-muted">No prints logged yet.</p>{% endif %}
 </div>
+
+<script>
+// Keep the owner's scroll position across a receive/confirm POST+redirect, so routine
+// receiving from the dashboard never jumps them back to the top.
+(function () {
+  var KEY = 'ops-dashboard-scroll';
+  document.querySelectorAll('form.js-keep-scroll').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
+    });
+  });
+  try {
+    var y = sessionStorage.getItem(KEY);
+    if (y !== null) {
+      sessionStorage.removeItem(KEY);
+      window.scrollTo(0, parseInt(y, 10) || 0);
+    }
+  } catch (e) {}
+})();
+</script>
 {% endblock %}

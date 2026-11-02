@@ -838,6 +838,31 @@ This file tracks all changes made by Claude Code during development.
   indivisible units and allows decimals only for weight/volume/length. The existing
   incorrect line was left unchanged for the owner to correct via the new Edit action.
 
+### Operations: fast receiving from the dashboard (no model changes)
+- Files: `operations/services.py` (new `default_receiving_location`, `quick_receive_line`,
+  `quick_receive_purchase` — reuse `receive_stock_line` / `receive_filament_spool` and their
+  protections), `operations/views.py` (`dashboard` rebuilt to attach per-line receive
+  affordances + scoped order groups; new `dashboard_receive_line`, `dashboard_confirm_line`,
+  `dashboard_receive_purchase`), `operations/urls.py` (`dashboard/lines/<id>/receive/`,
+  `dashboard/lines/<id>/confirm/`, `dashboard/purchases/<id>/receive-remaining/`),
+  `operations/templates/operations/dashboard.html` (inline Receive buttons with an Options
+  control for partial qty / refills, equipment routed to the full Receive form, per-order
+  "Receive remaining" buttons, a "Confirm received" button per unconfirmed line, scroll-
+  preservation script + `#ops-receiving` anchor).
+- Migrations: none (code-only; `check` clean).
+- Tests: `operations/tests/test_dashboard_receiving.py` (18 tests). Full operations suite
+  101 pass on PostgreSQL. Browser-verified the whole-order receive (3 refills + 1 stock) on
+  local Postgres: order → received, refills sealed/grams-untracked/auto-location, stock
+  on-hand, no movements for untracked spools, equipment correctly routed to the details form.
+- Notes: One click receives the full outstanding amount; filament arrives as sealed spools
+  (or refills, preserved) with grams untracked, auto-located to Home Office / Print Room, and
+  delivery-confirmed. Stock posts one receipt movement. Receiving never creates a Finance
+  expense/payment and never touches costs/funding/documents. Idempotent against double-clicks:
+  deterministic spool ids per submission token + a stock movement idempotency key + a locked
+  line row. Equipment needs its details, so those lines link to the full Receive form.
+  "Receive remaining order" is scoped strictly to one order's not-yet-received lines, leaving
+  unconfirmed lines to the separate Confirm action. No production purchases were received.
+
 <!-- 
 TEMPLATE FOR NEW ENTRIES:
 

@@ -8,6 +8,14 @@ app_name = 'operations'
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
 
+    # Fast receiving from the dashboard
+    path('dashboard/lines/<uuid:line_id>/receive/', views.dashboard_receive_line,
+         name='dashboard_receive_line'),
+    path('dashboard/lines/<uuid:line_id>/confirm/', views.dashboard_confirm_line,
+         name='dashboard_confirm_line'),
+    path('dashboard/purchases/<uuid:purchase_id>/receive-remaining/',
+         views.dashboard_receive_purchase, name='dashboard_receive_purchase'),
+
     # Suppliers / locations
     path('suppliers/', views.supplier_list, name='supplier_list'),
     path('suppliers/new/', views.supplier_create, name='supplier_create'),

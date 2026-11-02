@@ -77,10 +77,32 @@ def dashboard(request):
     purchase_total = sum((p.order_total() for p in Purchase.objects.all()), Decimal('0'))
 
     # 2) What is arriving / awaiting delivery confirmation.
-    outstanding_lines = [ln for ln in PurchaseLine.objects.select_related('purchase', 'purchase__supplier')
-                         if ln.delivery_state == 'outstanding']
-    awaiting_lines = [ln for ln in PurchaseLine.objects.select_related('purchase', 'purchase__supplier')
-                      if ln.delivery_state == 'unconfirmed']
+    #    Build the fast-receive affordances here: each not-received line gets a one-click
+    #    Receive (full outstanding by default; partial/refill via a small inline control),
+    #    and each multi-line order gets a scoped "Receive remaining order" action. A fresh
+    #    idempotency token per rendered form makes a double-click a safe no-op.
+    from collections import OrderedDict
+    all_lines = list(PurchaseLine.objects.select_related('purchase', 'purchase__supplier', 'material'))
+    outstanding_lines, awaiting_lines, order_groups = [], [], OrderedDict()
+    for ln in all_lines:
+        state = ln.delivery_state
+        if state == 'outstanding':
+            quickable = ln.item_type in ('filament', 'stock')
+            outstanding_lines.append({
+                'ln': ln, 'quickable': quickable, 'is_filament': ln.item_type == 'filament',
+                'is_equipment': ln.item_type == 'equipment',
+                'outstanding': ln.quantity_outstanding, 'token': uuid.uuid4().hex,
+            })
+            if quickable:
+                grp = order_groups.setdefault(ln.purchase_id, {
+                    'purchase': ln.purchase, 'quick': 0, 'filament': 0, 'token': uuid.uuid4().hex})
+                grp['quick'] += 1
+                if ln.item_type == 'filament':
+                    grp['filament'] += 1
+        elif state == 'unconfirmed':
+            awaiting_lines.append(ln)
+    # Offer the whole-order button only where it saves clicks (2+ quick-receivable lines).
+    receive_order_groups = [g for g in order_groups.values() if g['quick'] >= 2]
 
     # 3) Filament by colour/status; low spools vs spare stock; only real reorder flags.
     filament_rows = []
@@ -101,11 +123,95 @@ def dashboard(request):
         'active_nav': 'dashboard',
         'owned': owned, 'purchase_total': purchase_total, 'purchase_count': Purchase.objects.count(),
         'outstanding_lines': outstanding_lines, 'awaiting_lines': awaiting_lines,
+        'receive_order_groups': receive_order_groups,
         'filament_rows': filament_rows, 'low_spools': low_spools,
         'reorder_materials': reorder_materials, 'any_thresholds': any_thresholds,
         'in_progress_prints': in_progress_prints, 'recent_prints': recent_prints,
     }
     return render(request, 'operations/dashboard.html', ctx)
+
+
+def _back_to_receiving():
+    """Redirect back to the dashboard's receiving section (keeps the owner there)."""
+    return redirect(reverse('operations:dashboard') + '#ops-receiving')
+
+
+def _parse_optional_quantity(request):
+    """A blank/absent quantity means 'receive the full outstanding amount'."""
+    raw = (request.POST.get('quantity') or '').strip()
+    if not raw:
+        return None
+    try:
+        qty = Decimal(raw)
+    except (ArithmeticError, ValueError):
+        raise ValidationError('Enter a valid quantity.')
+    if qty <= Decimal('0'):
+        raise ValidationError('Quantity must be greater than zero.')
+    return qty
+
+
+@admin_required
+def dashboard_receive_line(request, line_id):
+    """Fast receive of one not-yet-received line, straight from the dashboard."""
+    line = get_object_or_404(PurchaseLine.objects.select_related('purchase'), pk=line_id)
+    if request.method == 'POST':
+        try:
+            result = services.quick_receive_line(
+                line=line, actor=request.user,
+                quantity=_parse_optional_quantity(request),
+                is_refill=(request.POST.get('is_refill') == 'on'),
+                idempotency_key=request.POST.get('idempotency_key') or None)
+            if result['kind'] == 'filament':
+                noun = 'refill' if result.get('is_refill') else 'spool'
+                messages.success(request, f"Received {result['created']} {noun}"
+                                          f"{'' if result['created'] == 1 else 's'} "
+                                          f'(sealed, grams untracked). No expense created.')
+            else:
+                messages.success(request, f"Received {result['quantity']} {line.unit}. "
+                                          'No expense created.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return _back_to_receiving()
+
+
+@admin_required
+def dashboard_confirm_line(request, line_id):
+    """Confirm an already-recorded (unconfirmed) delivery from the dashboard — uses the
+    existing records, never creates duplicates."""
+    line = get_object_or_404(PurchaseLine.objects.select_related('purchase'), pk=line_id)
+    if request.method == 'POST':
+        try:
+            services.confirm_line_received(line=line, actor=request.user)
+            messages.success(request, f'"{line.description}" confirmed received — now counted on hand.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return _back_to_receiving()
+
+
+@admin_required
+def dashboard_receive_purchase(request, purchase_id):
+    """Receive every remaining (not-received) filament/stock line on one order."""
+    purchase = get_object_or_404(Purchase, pk=purchase_id)
+    if request.method == 'POST':
+        try:
+            s = services.quick_receive_purchase(
+                purchase=purchase, actor=request.user,
+                is_refill=(request.POST.get('is_refill') == 'on'),
+                idempotency_key=request.POST.get('idempotency_key') or None)
+            parts = []
+            if s['spools']:
+                parts.append(f"{s['spools']} filament spool(s)")
+            if s['stock_lines']:
+                parts.append(f"{s['stock_lines']} stock line(s)")
+            msg = ('Received ' + ', '.join(parts) + ' for this order. No expense created.'
+                   if parts else 'Nothing left to receive on this order.')
+            if s['skipped_equipment']:
+                msg += (f" {s['skipped_equipment']} equipment line(s) skipped — receive "
+                        'those individually with their details.')
+            messages.success(request, msg)
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return _back_to_receiving()
 
 
 # =============================================================================
