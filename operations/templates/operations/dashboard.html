@@ -20,9 +20,10 @@
 
 <div class="card mt-3">
   <div class="row-split"><h2>Purchases</h2><a href="{% url 'operations:purchase_list' %}">All purchases →</a></div>
-  <p>{{ purchase_count }} purchase{{ purchase_count|pluralize }} recorded — total recorded cost
+  <p>{{ purchase_count }} purchase{{ purchase_count|pluralize }} recorded — active recorded cost
      <strong>${{ purchase_total|floatformat:2 }}</strong>.</p>
-  <p class="help">Recorded acquisition cost only — not profit, a tax deduction, or verified cash paid.</p>
+  <p class="help">Recorded acquisition cost only — not profit, a tax deduction, or verified cash paid.
+     Canceled orders and lines are excluded; their original amounts stay visible in Purchases.</p>
 </div>
 
 <!-- 2) What is arriving / awaiting confirmation -->

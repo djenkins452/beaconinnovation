@@ -73,8 +73,10 @@ def dashboard(request):
                 .aggregate(t=Sum('quantity'))['t'] or 0)
     owned['produced'] = int(produced)
 
-    # Purchase summary — recorded total only (not profit / deductible / cash outflow).
-    purchase_total = sum((p.order_total() for p in Purchase.objects.all()), Decimal('0'))
+    # Purchase summary — ACTIVE recorded total (excludes canceled orders/lines); not
+    # profit / deductible / cash outflow. Original amounts stay visible in history.
+    purchase_total = sum((p.active_order_total()
+                          for p in Purchase.objects.prefetch_related('lines')), Decimal('0'))
 
     # 2) What is arriving / awaiting delivery confirmation.
     #    Build the fast-receive affordances here: each not-received line gets a one-click
@@ -513,11 +515,14 @@ def purchase_list(request):
     purchases = (Purchase.objects.select_related('supplier')
                  .prefetch_related('lines', 'lines__spools', 'lines__movements__stock_item', 'payments')
                  .all())
-    total_recorded = sum((p.order_total() for p in purchases), Decimal('0'))
+    # Active total excludes canceled orders/lines; each row still shows its original total.
+    total_recorded = sum((p.active_order_total() for p in purchases), Decimal('0'))
+    cancelled_count = sum(1 for p in purchases if p.is_cancelled)
     paginator = Paginator(purchases, 25)
     page = paginator.get_page(request.GET.get('page'))
     return render(request, 'operations/purchase_list.html',
-                  {'active_nav': 'purchases', 'page': page, 'total_recorded': total_recorded})
+                  {'active_nav': 'purchases', 'page': page, 'total_recorded': total_recorded,
+                   'cancelled_count': cancelled_count})
 
 
 @admin_required
@@ -545,13 +550,21 @@ def purchase_detail(request, purchase_id):
     expense_form = CreateExpenseForm(initial={'amount': purchase.order_total(),
                                               'transaction_date': purchase.order_date,
                                               'description': f'Purchase {purchase}'})
+    lines = list(purchase.lines.select_related('material').all())
+    receivable = [ln for ln in lines if ln.item_type != 'other']
+    # The whole order can be cancelled only when nothing on it has been received and
+    # there is still a live (not already cancelled) line to cancel.
+    can_cancel_order = (not purchase.is_cancelled and not purchase.has_received_inventory
+                        and any(not ln.is_cancelled for ln in receivable))
     ctx = {
         'active_nav': 'purchases', 'purchase': purchase,
-        'lines': purchase.lines.select_related('material').all(),
+        'lines': lines,
         'payments': purchase.payments.select_related('transaction').all(),
         'documents': purchase.documents.all(),
         'line_form': line_form, 'link_form': link_form, 'expense_form': expense_form,
         'linked_total': purchase.linked_payment_total(),
+        'can_cancel_order': can_cancel_order,
+        'has_linked_payments': purchase.payments.exists(),
     }
     return render(request, 'operations/purchase_detail.html', ctx)
 
@@ -657,6 +670,48 @@ def purchase_confirm_received(request, purchase_id):
         except ValidationError as e:
             messages.error(request, '; '.join(e.messages))
     return redirect('operations:purchase_detail', purchase_id=purchase.id)
+
+
+@admin_required
+def purchase_cancel(request, purchase_id):
+    """Cancel a whole order (e.g. the supplier confirmed cancellation). Only valid when
+    nothing has been received; preserves prices/documents/history, excludes it from
+    active totals, implies no refund, and flags any linked Finance payment for review."""
+    purchase = get_object_or_404(Purchase, pk=purchase_id)
+    if request.method == 'POST':
+        try:
+            result = services.cancel_purchase(
+                purchase=purchase, actor=request.user,
+                reason=(request.POST.get('reason') or '').strip())
+            if result.get('already'):
+                messages.info(request, 'This order was already canceled.')
+            else:
+                msg = (f"Order canceled ({result['lines']} line(s)). The original order, "
+                       'prices and documents are preserved and it is excluded from active '
+                       'acquisition-cost totals. No refund is implied.')
+                if result['linked_payments']:
+                    msg += (f" Note: {result['linked_payments']} linked Finance payment(s) "
+                            'were NOT changed — review them in Finance if a refund is due.')
+                messages.success(request, msg)
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=purchase.id)
+
+
+@admin_required
+def line_cancel(request, line_id):
+    """Cancel one outstanding line (for partially received orders). Refuses a line with
+    received inventory — mark it not received first. Never touches costs/payments/docs."""
+    line = get_object_or_404(PurchaseLine.objects.select_related('purchase'), pk=line_id)
+    if request.method == 'POST':
+        try:
+            services.cancel_line(line=line, actor=request.user,
+                                 reason=(request.POST.get('reason') or '').strip())
+            messages.success(request, f'"{line.description}" canceled. Costs, funding, payments '
+                                      'and documents are unchanged; it can no longer be received.')
+        except ValidationError as e:
+            messages.error(request, '; '.join(e.messages))
+    return redirect('operations:purchase_detail', purchase_id=line.purchase_id)
 
 
 @admin_required

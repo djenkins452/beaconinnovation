@@ -229,6 +229,8 @@ def receive_stock_line(*, line, quantity, actor, location=None, status=StockItem
     received total and emits a purchase_receipt movement. No expense."""
     if line.item_type != 'stock':
         raise ValidationError('receive_stock_line is only for stock lines.')
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled and cannot be received.')
     material = line.material
     if material is None:
         raise ValidationError('This line has no material set; set one before receiving.')
@@ -264,6 +266,8 @@ def receive_filament_line(*, line, spool_specs, actor, location=None, idempotenc
     tare_weight_g?, cost?, status?. No expense."""
     if line.item_type != 'filament':
         raise ValidationError('receive_filament_line is only for filament lines.')
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled and cannot be received.')
     material = line.material
     if material is None or material.material_type != 'filament':
         raise ValidationError('Filament lines need a filament material set.')
@@ -311,6 +315,8 @@ def receive_filament_spool(*, line, spool_uid, actor, starting_weight_g=ZERO,
     finance expense is created."""
     if line.item_type != 'filament':
         raise ValidationError('receive_filament_spool is only for filament lines.')
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled and cannot be received.')
     material = line.material
     if material is None or material.material_type != 'filament':
         raise ValidationError('Filament lines need a filament material set.')
@@ -351,6 +357,8 @@ def receive_equipment_line(*, line, actor, name, equipment_type='printer', locat
     from operations.models import Equipment
     if line.item_type != 'equipment':
         raise ValidationError('receive_equipment_line is only for equipment lines.')
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled and cannot be received.')
     equipment = Equipment.objects.create(
         name=name, equipment_type=equipment_type, location=location, source_line=line,
         cost=fields.get('cost'), cost_unknown=fields.get('cost_unknown', False),
@@ -415,6 +423,8 @@ def quick_receive_line(*, line, actor, quantity=None, is_refill=False,
     line = (PurchaseLine.objects.select_for_update(of=('self',))
             .select_related('purchase', 'material').get(pk=line.pk))
 
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled and cannot be received.')
     if line.item_type == 'other':
         raise ValidationError('This line has nothing to receive into inventory.')
     if line.item_type == 'equipment':
@@ -482,10 +492,12 @@ def quick_receive_purchase(*, purchase, actor, is_refill=False, location=None,
 
     Returns a summary dict: ``{'spools', 'stock_lines', 'skipped_equipment'}``.
     """
+    if purchase.is_cancelled:
+        raise ValidationError('This order is canceled and cannot be received.')
     token = idempotency_key or uuid_hex()
     summary = {'spools': 0, 'stock_lines': 0, 'skipped_equipment': 0}
     for line in purchase.lines.select_related('material').all():
-        if line.item_type == 'other':
+        if line.item_type == 'other' or line.is_cancelled:
             continue
         if line.receiving_status != 'outstanding':
             continue
@@ -866,6 +878,8 @@ def mark_line_not_received(*, line, actor):
 
     Idempotent: running it again on an already-not-received line is a no-op.
     """
+    if line.is_cancelled:
+        return line  # a canceled line has no inventory and no received state to undo
     spools, stock_items = _line_inventory_records(line)
 
     used = [f'spool {s.spool_uid}' for s in spools
@@ -934,6 +948,8 @@ def confirm_line_received(*, line, actor):
     no new inventory movement and never touches costs, funding, payments, expenses or
     documents. Refuses if there is nothing recorded to confirm (use the Receive flow to
     record what arrived). Idempotent."""
+    if line.is_cancelled:
+        raise ValidationError('This line is canceled; there is nothing to confirm.')
     spools, stock_items = _line_inventory_records(line)
     received = (line.quantity_received or ZERO) > ZERO
     if not spools and not stock_items and not received:
@@ -970,7 +986,7 @@ def mark_purchase_not_received(*, purchase, actor):
     summary audit event is written for the order."""
     n = 0
     for line in purchase.lines.all():
-        if line.item_type == 'other':
+        if line.item_type == 'other' or line.is_cancelled:
             continue
         mark_line_not_received(line=line, actor=actor)
         n += 1
@@ -985,7 +1001,7 @@ def confirm_purchase_received(*, purchase, actor):
     confirm (see :func:`confirm_line_received`). One summary audit event is written."""
     n = 0
     for line in purchase.lines.all():
-        if line.item_type == 'other':
+        if line.item_type == 'other' or line.is_cancelled:
             continue
         spools, stock_items = _line_inventory_records(line)
         if spools or stock_items or (line.quantity_received or ZERO) > ZERO:
@@ -994,6 +1010,102 @@ def confirm_purchase_received(*, purchase, actor):
     record_audit(actor, 'update', purchase,
                  summary=f'Whole order confirmed received ({n} line(s))')
     return n
+
+
+# =============================================================================
+# Cancellation (owner self-service — audited, history-preserving, no refund implied)
+# =============================================================================
+
+def _line_has_received_inventory(line):
+    """True if this line has anything received/recorded into inventory (a received
+    quantity, a created spool, or a posted stock receipt). Cancellation refuses on such
+    a line so received inventory is never silently undone."""
+    spools, stock_items = _line_inventory_records(line)
+    return bool(spools or stock_items or (line.quantity_received or ZERO) > ZERO)
+
+
+@transaction.atomic
+def cancel_line(*, line, actor, reason=''):
+    """Cancel a single outstanding purchase line.
+
+    The line, its price and the order are preserved; the line is only flagged
+    cancelled so it is excluded from active acquisition-cost totals and can no longer
+    be received (by the dashboard shortcuts or a direct Receive request). Refuses to
+    cancel a line that has any received/recorded inventory — cancelling must never
+    silently undo received stock; mark such a line *not received* first (that safely
+    reverses the receipt through the ledger), then cancel it.
+
+    Never touches costs, funding, payments, Finance expenses or attached documents.
+    Idempotent: cancelling an already-cancelled line is a no-op.
+    """
+    # Lock only the line row (of=('self',)) — Postgres can't lock across the nullable
+    # material join — so concurrent cancel/receive on the same line are serialized.
+    line = (PurchaseLine.objects.select_for_update(of=('self',))
+            .select_related('purchase').get(pk=line.pk))
+    if line.is_cancelled:
+        return line
+    if _line_has_received_inventory(line):
+        raise ValidationError(
+            'This line has received or recorded inventory. Mark it "not received" '
+            'first (that safely reverses the receipt in inventory history), then '
+            'cancel it.')
+    line.cancelled_at = timezone.now()
+    line.cancelled_by = actor if (actor and getattr(actor, 'is_authenticated', False)) else None
+    line.cancellation_reason = (reason or '')[:500]
+    line.save(update_fields=['cancelled_at', 'cancelled_by', 'cancellation_reason'])
+    record_audit(actor, 'update', line,
+                 summary='Purchase line canceled' + (f': {reason}' if reason else ''),
+                 changes={'cancelled': ['no', 'yes'], 'reason': ['', reason or '']})
+    return line
+
+
+@transaction.atomic
+def cancel_purchase(*, purchase, actor, reason=''):
+    """Cancel a whole purchase (e.g. an order the supplier confirmed cancelled).
+
+    Valid only when NOTHING on the order has been received — cancelling must never
+    silently undo received inventory. If any line has received/recorded inventory the
+    cancel is refused, pointing at per-line cancellation / mark-not-received for the
+    still-outstanding part. On success every line and the purchase are flagged
+    cancelled; all prices, lines, documents and audit history are preserved and only
+    excluded from active acquisition-cost totals.
+
+    Cancelling implies **no refund** and never changes funding, payments or Finance
+    expenses. Any linked Finance payment is flagged for manual review (returned in the
+    summary) but left exactly as it is. Idempotent.
+
+    Returns ``{'already', 'lines', 'linked_payments'}``.
+    """
+    purchase = Purchase.objects.select_for_update().get(pk=purchase.pk)
+    if purchase.is_cancelled:
+        return {'already': True, 'lines': 0, 'linked_payments': purchase.payments.count()}
+
+    received = [line.description for line in purchase.lines.all()
+                if _line_has_received_inventory(line)]
+    if received:
+        shown = ', '.join(received[:5]) + ('…' if len(received) > 5 else '')
+        raise ValidationError(
+            f'This order has received or recorded items ({shown}). Cancelling cannot '
+            'undo received inventory. Cancel the outstanding lines individually, or '
+            'mark the received ones not received first.')
+
+    n = 0
+    for line in purchase.lines.all():
+        if not line.is_cancelled:
+            cancel_line(line=line, actor=actor, reason=reason)
+            n += 1
+
+    purchase.cancelled_at = timezone.now()
+    purchase.cancelled_by = actor if (actor and getattr(actor, 'is_authenticated', False)) else None
+    purchase.cancellation_reason = (reason or '')[:500]
+    purchase.save(update_fields=['cancelled_at', 'cancelled_by', 'cancellation_reason'])
+
+    linked = purchase.payments.count()
+    record_audit(actor, 'update', purchase,
+                 summary=f'Purchase canceled ({n} line(s))' + (f': {reason}' if reason else ''),
+                 changes={'cancelled': ['no', 'yes'], 'reason': ['', reason or ''],
+                          'linked_payments_flagged': linked})
+    return {'already': False, 'lines': n, 'linked_payments': linked}
 
 
 # =============================================================================

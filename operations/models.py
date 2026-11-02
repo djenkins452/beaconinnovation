@@ -518,6 +518,16 @@ class Purchase(models.Model):
     tax_total = models.DecimalField(default=ZERO, **MONEY_DECIMALS)
     discount_total = models.DecimalField(default=ZERO, **MONEY_DECIMALS)
     notes = models.TextField(blank=True, default='')
+    # Cancellation (owner self-service). A cancelled order keeps its lines, prices,
+    # documents and audit history untouched — it is only flagged cancelled so it drops
+    # out of ACTIVE acquisition-cost totals and can no longer be received. Cancelling
+    # implies no refund and never changes funding, payments or finance expenses.
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='operations_cancelled_purchases',
+    )
+    cancellation_reason = models.CharField(max_length=500, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='operations_purchases',
@@ -545,7 +555,44 @@ class Purchase(models.Model):
         return sum((line.line_total for line in self.lines.all()), ZERO)
 
     def order_total(self):
+        """The ORIGINAL recorded order total (all lines). Preserved for history and
+        shown on the list/detail even after cancellation."""
         return self.lines_subtotal() + self.shipping_total + self.tax_total - self.discount_total
+
+    @property
+    def is_cancelled(self):
+        return self.cancelled_at is not None
+
+    @property
+    def has_cancelled_lines(self):
+        return any(line.is_cancelled for line in self.lines.all())
+
+    def active_lines_subtotal(self):
+        """Lines subtotal counting only lines that have NOT been cancelled."""
+        return sum((line.line_total for line in self.lines.all() if not line.is_cancelled), ZERO)
+
+    def active_order_total(self):
+        """The amount this order contributes to ACTIVE acquisition-cost totals. A
+        fully cancelled order contributes nothing; otherwise cancelled lines are
+        excluded but order-level shipping/tax/discount (already incurred) remain. The
+        original :meth:`order_total` is untouched and stays visible in history."""
+        if self.is_cancelled:
+            return ZERO
+        return self.active_lines_subtotal() + self.shipping_total + self.tax_total - self.discount_total
+
+    @property
+    def has_received_inventory(self):
+        """True if anything on this order has been received/recorded into inventory
+        (received quantity, a created spool, or a posted stock receipt). Used to keep
+        cancellation from silently undoing received stock."""
+        for line in self.lines.all():
+            if (line.quantity_received or ZERO) > ZERO:
+                return True
+            if line.spools.exists():
+                return True
+            if line.movements.filter(movement_type='purchase_receipt').exists():
+                return True
+        return False
 
     def linked_payment_total(self):
         return self.payments.aggregate(t=Sum('amount'))['t'] or ZERO
@@ -563,9 +610,15 @@ class Purchase(models.Model):
         * ``unconfirmed``— delivery recorded/assumed but not confirmed on any line
           (excluded from available inventory);
         * ``partial``    — a mix (some received/confirmed, some not);
+        * ``cancelled``  — the whole order was cancelled;
         * ``empty``      — the order has no receivable lines.
         """
-        lines = [line for line in self.lines.all() if line.item_type != 'other']
+        if self.is_cancelled:
+            return 'cancelled'
+        # Cancelled lines are neither received nor outstanding — exclude them so the
+        # order status reflects only lines that are still live.
+        lines = [line for line in self.lines.all()
+                 if line.item_type != 'other' and not line.is_cancelled]
         if not lines:
             return 'empty'
         states = {line.receiving_status for line in lines}
@@ -629,6 +682,15 @@ class PurchaseLine(models.Model):
         max_length=12, blank=True, default='',
         help_text="Explicit delivery state. Blank = derive from what's received.",
     )
+    # Line-level cancellation (for cancelling outstanding lines on an otherwise live
+    # order). A cancelled line keeps its price/record; it is only excluded from active
+    # totals and can no longer be received.
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='operations_cancelled_lines',
+    )
+    cancellation_reason = models.CharField(max_length=500, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -642,7 +704,14 @@ class PurchaseLine(models.Model):
         return (self.quantity_ordered * self.unit_cost) - self.line_discount + self.line_tax
 
     @property
+    def is_cancelled(self):
+        return self.cancelled_at is not None
+
+    @property
     def quantity_outstanding(self):
+        # A cancelled line has nothing left to receive.
+        if self.is_cancelled:
+            return ZERO
         return self.quantity_ordered - self.quantity_received
 
     @property
@@ -696,6 +765,8 @@ class PurchaseLine(models.Model):
         assumed/unconfirmed delivery is never shown as ``received`` or counted as
         on-hand. Free-text notes are never consulted.
         """
+        if self.is_cancelled:
+            return 'cancelled'
         if self.item_type == 'other':
             return 'na'  # nothing to receive into inventory
         if self.delivery == 'outstanding':
@@ -716,7 +787,7 @@ class PurchaseLine(models.Model):
 
     RECEIVING_LABELS = {
         'na': '—', 'outstanding': 'Not received', 'unconfirmed': 'Delivery unconfirmed',
-        'partial': 'Partially received', 'received': 'Received',
+        'partial': 'Partially received', 'received': 'Received', 'cancelled': 'Canceled',
     }
 
     @property

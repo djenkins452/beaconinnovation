@@ -4,6 +4,53 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-11-02
+
+### Operations: audited purchase cancellation (whole order + per-line)
+- **What:** owner self-service cancellation for purchases that were canceled with the
+  supplier (e.g. Home Depot WH49872139). A **"Cancel purchase"** action on the purchase
+  detail (with an optional reason + confirm) cancels a fully-outstanding order; a
+  per-line **"Cancel line"** action cancels an individual outstanding line on an
+  otherwise live/partially-received order.
+- **Preserves history:** cancellation only flags records — the original order, line
+  prices, documents and audit history are untouched. `Purchase.order_total()` still
+  returns the original amount; a new `Purchase.active_order_total()` (and
+  `active_lines_subtotal()`) is what feeds dashboards/list totals, excluding canceled
+  orders/lines. `Purchase.is_cancelled` / `PurchaseLine.is_cancelled` drive the badges.
+- **Consistent "Canceled" everywhere:** `Purchase.receiving_status` returns `cancelled`;
+  `PurchaseLine.receiving_status` returns `cancelled` and `quantity_outstanding` → 0, so
+  canceled lines drop out of the dashboard "Arriving & awaiting" section automatically.
+  List, detail and dashboard all show a red **Canceled** badge; list/dashboard totals are
+  relabeled "active recorded cost … canceled … excluded".
+- **Never undoes received inventory:** `cancel_purchase` refuses if *anything* on the
+  order has been received/recorded (points at per-line cancel / mark-not-received);
+  `cancel_line` refuses a received line. So cancellation posts/edits **no** inventory
+  movement and creates no finance rows.
+- **Receiving disabled for canceled items** through every path: `quick_receive_line`,
+  `quick_receive_purchase`, `receive_stock_line`, `receive_filament_line`,
+  `receive_filament_spool`, `receive_equipment_line`, and `confirm_line_received` all
+  reject canceled lines/orders; the detail Receive/Confirm buttons and the dashboard
+  shortcuts are hidden for them. Idempotent: a repeated cancel is a safe no-op; the line
+  row is locked (`select_for_update(of=('self',))`).
+- **No refund implied / money untouched:** cancelling changes no funding, payments or
+  Finance expenses. Any linked Finance payment is **flagged for manual review** in the
+  success message and the audit entry, never changed automatically.
+- **Files:** `operations/models.py` (cancel fields + properties on `Purchase`/
+  `PurchaseLine`, status/outstanding/total logic), `operations/services.py`
+  (`cancel_purchase`, `cancel_line`, `_line_has_received_inventory`, receiving guards),
+  `operations/views.py` (`purchase_cancel`, `line_cancel`, active totals on dashboard +
+  list, detail context), `operations/urls.py` (2 routes), templates
+  (`purchase_detail.html`, `purchase_list.html`, `dashboard.html`).
+- **Migration:** `operations/migrations/0006_purchase_cancellation_reason_purchase_cancelled_at_and_more.py`
+  (6 nullable/defaulted fields; no data change).
+- **Tests:** `operations/tests/test_purchase_cancellation.py` (19 tests). Full operations
+  suite **120 pass** on PostgreSQL (was 101). Browser-verified on local Postgres: whole
+  order cancel (Home Depot-shaped), per-line cancel on a partially received order, totals,
+  dashboard exclusion, list/detail badges; local test data cleaned up. No production order
+  was canceled.
+
+---
+
 ## 2026-11-01
 
 ### Operations: consistent receiving status + owner self-service delivery corrections

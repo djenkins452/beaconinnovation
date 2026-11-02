@@ -3,6 +3,7 @@
 {% block content %}
 <div class="row-split">
   <h1>{{ purchase.supplier_display }}{% if purchase.order_number %} — #{{ purchase.order_number }}{% endif %}
+      {% if purchase.is_cancelled %}<span class="badge badge-red">Canceled</span>{% endif %}
       {% if purchase.funding_label %}<span class="badge badge-grey">{{ purchase.funding_label }}</span>{% endif %}</h1>
   <div>
     <a href="{% url 'operations:purchase_edit' purchase.id %}" class="btn btn-secondary btn-sm">Edit purchase</a>
@@ -16,7 +17,14 @@
      &nbsp; <strong>+ shipping</strong> ${{ purchase.shipping_total|floatformat:2 }}
      &nbsp; <strong>+ tax</strong> ${{ purchase.tax_total|floatformat:2 }}
      &nbsp; <strong>− discount</strong> ${{ purchase.discount_total|floatformat:2 }}
-     &nbsp; = <strong>Total ${{ purchase.order_total|floatformat:2 }}</strong></p>
+     &nbsp; = <strong>{% if purchase.is_cancelled %}Original total{% else %}Total{% endif %} ${{ purchase.order_total|floatformat:2 }}</strong></p>
+  {% if purchase.is_cancelled %}
+    <p class="help">This order is <strong>canceled</strong>. The original amount above is kept for history but is
+       <strong>excluded</strong> from active acquisition-cost totals (active total for this order: $0.00).</p>
+  {% elif purchase.has_cancelled_lines %}
+    <p class="help">Some lines are canceled. Original total above is kept for history; the active acquisition
+       cost for this order is <strong>${{ purchase.active_order_total|floatformat:2 }}</strong> (canceled lines excluded).</p>
+  {% endif %}
   {% if purchase.product_links %}<p class="help">Links:<br>{{ purchase.product_links|linebreaksbr }}</p>{% endif %}
   {% if purchase.notes %}<p class="text-muted">{{ purchase.notes }}</p>
      <p class="help">Notes are a free-text memo only — they never set this order's receiving status.</p>{% endif %}
@@ -44,6 +52,40 @@
 </div>
 
 <div class="card">
+  <h2>Cancellation</h2>
+  {% if purchase.is_cancelled %}
+    <p class="mb-2"><span class="badge badge-red">Canceled</span>
+      {% if purchase.cancelled_at %} on {{ purchase.cancelled_at|date:"M j, Y" }}{% endif %}
+      {% if purchase.cancelled_by %} by {{ purchase.cancelled_by.get_username }}{% endif %}.</p>
+    {% if purchase.cancellation_reason %}<p class="text-muted">Reason: {{ purchase.cancellation_reason }}</p>{% endif %}
+    <p class="help">The original order, prices, documents and audit history are preserved. This order is excluded
+       from active acquisition-cost totals. Cancellation implies <strong>no refund</strong> and changed no funding,
+       payments, or Finance expenses.
+       {% if has_linked_payments %} A Finance payment is linked to this order — it was not changed; review it in Finance if a refund is due.{% endif %}</p>
+  {% elif can_cancel_order %}
+    <p class="help mb-2">Cancel this order if it was canceled with the supplier. Nothing on it has been received.
+       The original order, prices and documents are kept for history; it is removed from “arriving” and excluded
+       from active totals. This implies <strong>no refund</strong> and changes no funding, payments, Finance expenses, or documents.
+       {% if has_linked_payments %} A Finance payment is linked — it will be flagged for your review, not changed.{% endif %}</p>
+    <form method="post" action="{% url 'operations:purchase_cancel' purchase.id %}"
+          onsubmit="return confirm('Cancel this ENTIRE order? It will be preserved for history but excluded from active totals and can no longer be received. No refund is implied and no payments are changed.');">
+      {% csrf_token %}
+      <div class="form-group" style="max-width:480px;">
+        <label class="help">Reason (optional)</label>
+        <input type="text" name="reason" class="form-control" maxlength="500"
+               placeholder="e.g. Canceled with supplier; confirmed will not be charged.">
+      </div>
+      <button type="submit" class="btn btn-danger">Cancel purchase</button>
+    </form>
+  {% elif purchase.has_received_inventory %}
+    <p class="help">This order has received items, so the whole order can’t be canceled (that would undo received
+       inventory). Cancel individual <strong>outstanding</strong> lines below, or mark received lines not received first.</p>
+  {% else %}
+    <p class="text-muted">Nothing to cancel on this order.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Lines</h2>
   {% if lines %}
   <table>
@@ -55,7 +97,8 @@
       <td>{{ line.get_item_type_display }}</td>
       <td>{{ line.get_use_type_display }}{% if line.use_type == 'shared' %} ({{ line.business_pct }}%){% endif %}</td>
       <td class="text-right">{{ line.quantity_ordered|floatformat:"-3" }} {{ line.unit }}</td>
-      <td>{% if line.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
+      <td>{% if line.receiving_status == 'cancelled' %}<span class="badge badge-red">Canceled</span>
+          {% elif line.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
           {% elif line.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
           {% elif line.receiving_status == 'partial' %}<span class="badge badge-amber">Partially received</span>
           {% elif line.receiving_status == 'na' %}<span class="text-muted">—</span>
@@ -64,17 +107,22 @@
       <td class="text-right">${{ line.line_total|floatformat:2 }}</td>
       <td>
         <a href="{% url 'operations:line_edit' line.id %}" class="btn btn-secondary btn-sm">Edit</a>
-        {% if line.item_type != 'other' and line.receipt_state != 'received' %}
+        {% if not line.is_cancelled and line.item_type != 'other' and line.receipt_state != 'received' %}
           <a href="{% url 'operations:line_receive' line.id %}" class="btn btn-primary btn-sm">Receive</a>
         {% endif %}
         {% if line.receiving_status == 'unconfirmed' or line.receiving_status == 'partial' %}
           <form method="post" action="{% url 'operations:line_confirm_received' line.id %}" style="display:inline;">
             {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Confirm receipt</button></form>
         {% endif %}
-        {% if line.item_type != 'other' and line.receiving_status != 'outstanding' and line.receiving_status != 'na' %}
+        {% if line.item_type != 'other' and line.receiving_status != 'outstanding' and line.receiving_status != 'na' and line.receiving_status != 'cancelled' %}
           <form method="post" action="{% url 'operations:line_mark_not_received' line.id %}" style="display:inline;"
                 onsubmit="return confirm('Mark this line as NOT received? Any unused records created for it will be removed. Costs and documents are unchanged.');">
             {% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">Mark not received</button></form>
+        {% endif %}
+        {% if not purchase.is_cancelled and not line.is_cancelled and line.receiving_status == 'outstanding' %}
+          <form method="post" action="{% url 'operations:line_cancel' line.id %}" style="display:inline;"
+                onsubmit="return confirm('Cancel this line? It stays on the order for history but is excluded from active totals and can no longer be received. Costs, payments and documents are unchanged.');">
+            {% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">Cancel line</button></form>
         {% endif %}
       </td>
     </tr>

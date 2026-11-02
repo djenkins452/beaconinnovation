@@ -4,8 +4,9 @@
 <div class="row-split"><h1>Purchases</h1><a href="{% url 'operations:purchase_create' %}" class="btn btn-primary">Record a purchase</a></div>
 <div class="card">
   {% if total_recorded is not None %}
-  <p class="mb-2">{{ page.paginator.count }} purchase{{ page.paginator.count|pluralize }} · total recorded cost <strong>${{ total_recorded|floatformat:2 }}</strong>
-     <span class="help">(recorded acquisition cost only — not profit, tax deduction, or verified cash paid)</span></p>
+  <p class="mb-2">{{ page.paginator.count }} purchase{{ page.paginator.count|pluralize }} · active recorded cost <strong>${{ total_recorded|floatformat:2 }}</strong>
+     <span class="help">(recorded acquisition cost only — not profit, tax deduction, or verified cash paid;
+     {% if cancelled_count %}excludes {{ cancelled_count }} canceled order{{ cancelled_count|pluralize }}{% else %}canceled orders excluded{% endif %})</span></p>
   {% endif %}
   {% if page.object_list %}
   <table>
@@ -15,9 +16,10 @@
       <td>{{ p.order_date }}</td>
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.supplier_display }}</a></td>
       <td><a href="{% url 'operations:purchase_detail' p.id %}">{{ p.order_number|default:"—" }}</a></td>
-      <td class="text-right">${{ p.order_total|floatformat:2 }}</td>
+      <td class="text-right">${{ p.order_total|floatformat:2 }}{% if p.is_cancelled %}<br><span class="help">canceled — excluded</span>{% endif %}</td>
       <td>
-        {% if p.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
+        {% if p.receiving_status == 'cancelled' %}<span class="badge badge-red">Canceled</span>
+        {% elif p.receiving_status == 'received' %}<span class="badge badge-green">Received</span>
         {% elif p.receiving_status == 'unconfirmed' %}<span class="badge badge-amber">Delivery unconfirmed</span>
         {% elif p.receiving_status == 'partial' %}<span class="badge badge-amber">Partial</span>
         {% elif p.receiving_status == 'none' %}<span class="badge badge-grey">Not received</span>
