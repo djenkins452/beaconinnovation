@@ -61,6 +61,21 @@
         .row-split { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
         .pagination { margin-top:16px; }
         .pagination a, .pagination span { padding:6px 10px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#333; }
+        [hidden] { display:none !important; }   /* so a .btn with [hidden] actually hides */
+        /* Shared search bar (operations/_search.html) */
+        .ops-search { padding:14px 20px; margin-bottom:16px; }
+        .ops-search-label { display:block; font-weight:500; font-size:13px; margin-bottom:6px; color:#1f3a4d; }
+        .ops-search-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .ops-search-input { flex:1 1 280px; min-width:0; }
+        .ops-search-status { margin-top:8px; min-height:1.1em; }
+        .ops-search-status .btn-sm { margin-left:6px; }
+        .ops-search.ops-js .ops-search-submit { display:none; }     /* as-you-type: button not needed */
+        .ops-search.ops-loading .ops-search-label::after { content:" · searching…"; color:#16a085; font-weight:400; }
+        .ops-search.ops-error .ops-search-status { color:#e74c3c; }
+        .ops-result-count { color:#7f8c8d; font-size:13px; margin-bottom:10px; }
+        .ops-match td:first-child, .oc-row.ops-match .c-item { box-shadow: inset 3px 0 0 #16a085; }
+        .ops-match-tag { background:#16a085; color:#fff; border-radius:3px; font-size:11px; padding:1px 6px; margin-left:6px; }
+        @media (max-width:680px){ .ops-search-input { flex-basis:100%; } }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -97,5 +112,92 @@
         {% block content %}{% endblock %}
     </div>
     {% block extra_js %}{% endblock %}
+    <script>
+    // Shared search-as-you-type for Operations list pages. Progressive enhancement: with no
+    // JS the search form submits an ordinary GET; with JS it debounces, fetches the same URL,
+    // and swaps #ops-results in place — keeping focus in the box, the query in the URL, and
+    // ignoring stale/aborted responses so an older reply can never overwrite a newer one.
+    (function () {
+      var form = document.querySelector('form[data-ops-search]');
+      var region = document.getElementById('ops-results');
+      if (!form || !region) return;
+      var input = form.querySelector('input[name="q"]');
+      var status = form.querySelector('[data-ops-status]');
+      var clear = form.querySelector('[data-ops-clear]');
+      if (!input) return;
+      form.classList.add('ops-js');
+      var DEBOUNCE = 275, timer = null, controller = null, reqId = 0;
+
+      function buildUrl() {
+        var params = new URLSearchParams(location.search);
+        var v = input.value.trim();
+        if (v) { params.set('q', v); } else { params.delete('q'); }
+        params.delete('page');                 // a changed query resets pagination
+        var qs = params.toString();
+        return location.pathname + (qs ? '?' + qs : '');
+      }
+      function toggleClear() { if (clear) clear.hidden = !input.value.trim(); }
+      function announce() {
+        if (!status) return;
+        var el = region.querySelector('[data-ops-announce]');
+        status.textContent = el ? el.getAttribute('data-ops-announce') : '';
+      }
+      function showError() {
+        if (!status) return;
+        status.textContent = 'Search could not be updated. ';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary btn-sm';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', run);
+        status.appendChild(btn);
+      }
+      function run() {
+        var url = buildUrl(), mine = ++reqId;
+        if (controller) controller.abort();
+        controller = new AbortController();
+        form.classList.remove('ops-error');
+        form.classList.add('ops-loading');
+        if (status && !status.querySelector('button')) status.textContent = 'Searching…';
+        fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin', signal: controller.signal })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then(function (html) {
+            if (mine !== reqId) return;        // a newer request has started; drop this reply
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            var next = doc.getElementById('ops-results');
+            if (!next) throw new Error('missing region');
+            region.innerHTML = next.innerHTML;
+            form.classList.remove('ops-loading');
+            history.replaceState(null, '', url);
+            announce();
+          })
+          .catch(function (err) {
+            if (err.name === 'AbortError' || mine !== reqId) return;
+            form.classList.remove('ops-loading');
+            form.classList.add('ops-error');   // keep the existing results on screen
+            showError();
+          });
+      }
+      input.addEventListener('input', function () {
+        toggleClear();
+        clearTimeout(timer);
+        timer = setTimeout(run, DEBOUNCE);
+      });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();                    // Enter / Search button searches without a reload
+        clearTimeout(timer);
+        run();
+      });
+      if (clear) clear.addEventListener('click', function (e) {
+        e.preventDefault();
+        input.value = '';
+        toggleClear();
+        input.focus();
+        clearTimeout(timer);
+        run();
+      });
+      toggleClear();
+    })();
+    </script>
 </body>
 </html>

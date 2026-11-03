@@ -5,15 +5,24 @@
 
 <div class="card summary-bar">
   <div>
-    <strong>{{ page.paginator.count }}</strong> purchase{{ page.paginator.count|pluralize }} ·
-    active recorded cost <strong>${{ total_recorded|floatformat:2 }}</strong>
+    <strong>{{ total_count }}</strong> purchase{{ total_count|pluralize }} ·
+    recorded cost <strong>${{ total_recorded|floatformat:2 }}</strong> across all purchases
     <span class="help">recorded acquisition cost only — not profit, tax deduction, or verified cash paid;
-      {% if cancelled_count %}excludes {{ cancelled_count }} canceled order{{ cancelled_count|pluralize }}{% else %}canceled orders excluded{% endif %}</span>
+      {% if cancelled_count %}excludes {{ cancelled_count }} canceled order{{ cancelled_count|pluralize }}{% else %}canceled orders excluded{% endif %}.
+      Search below filters which orders are listed; it does not change this total.</span>
   </div>
   <p class="help mt-2">Receive delivered items without opening each order — use <em>Options</em> for partial amounts or refills.</p>
 </div>
 
-{% if page.object_list %}
+{% include 'operations/_search.html' with search_q=q search_label="Search purchases" search_placeholder="Supplier, order number, item, material, SKU…" %}
+
+<div id="ops-results">
+  {% if has_query %}
+    <p class="ops-result-count" data-ops-announce="{{ match_count }} purchase{{ match_count|pluralize }} match “{{ q }}”.">
+      <strong>{{ match_count }}</strong> purchase{{ match_count|pluralize }} match “{{ q }}”</p>
+  {% endif %}
+
+  {% if page.object_list %}
   {% for p in page.object_list %}
   <div class="order-card card{% if p.is_cancelled %} order-canceled{% endif %}">
 
@@ -48,9 +57,9 @@
         <div class="c-actions">Actions</div>
       </div>
       {% for row in p.item_rows %}
-      <div class="oc-row{% if row.is_cancelled %} line-canceled{% endif %}">
+      <div class="oc-row{% if row.is_cancelled %} line-canceled{% endif %}{% if row.match %} ops-match{% endif %}">
         <div class="c-item">
-          <span class="item-desc">{{ row.desc }}</span>
+          <span class="item-desc">{{ row.desc }}</span>{% if row.match %}<span class="ops-match-tag">match</span>{% endif %}
           {% if row.show_catalog %}<span class="help item-cat">{{ row.catalog }}</span>{% endif %}
         </div>
         <div class="c-qty">{{ row.ln.quantity_ordered|floatformat:"-3" }} {{ row.ln.unit }}</div>
@@ -105,7 +114,7 @@
         <input type="hidden" name="next" value="{{ next_url }}">
         <input type="hidden" name="idempotency_key" value="{{ p.quick_group.token }}">
         {% if p.quick_group.filament %}<label class="help oc-foot-refill"><input type="checkbox" name="is_refill"> refills</label>{% endif %}
-        <button type="submit" class="btn btn-secondary btn-sm">Receive remaining on this order ({{ p.quick_group.count }} item{{ p.quick_group.count|pluralize }})</button>
+        <button type="submit" class="btn btn-secondary btn-sm">Receive remaining on this entire order ({{ p.quick_group.count }} item{{ p.quick_group.count|pluralize }})</button>
       </form>
     </div>
     {% endif %}
@@ -114,13 +123,16 @@
   {% endfor %}
 
   <div class="pagination">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+    {% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}">← Prev</a>{% endif %}
     <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next →</a>{% endif %}
+    {% if page.has_next %}<a href="{% querystring page=page.next_page_number %}">Next →</a>{% endif %}
   </div>
-{% else %}
-  <div class="card"><p class="text-muted">No purchases yet.</p></div>
-{% endif %}
+  {% elif has_query %}
+    <div class="card"><p class="text-muted">No purchases match “{{ q }}”. <a href="?">Clear search</a> to see all orders.</p></div>
+  {% else %}
+    <div class="card"><p class="text-muted">No purchases yet.</p></div>
+  {% endif %}
+</div>
 {% endblock %}
 
 {% block extra_css %}
@@ -197,21 +209,23 @@
 {% block extra_js %}
 <script>
 // Keep scroll position across a receive/confirm POST+redirect so receiving from the
-// list never jumps back to the top (mirrors the dashboard's behaviour).
+// list never jumps back to the top (mirrors the dashboard). Delegated from the document so
+// it keeps working after the search component swaps #ops-results in place.
 (function () {
   var KEY = 'ops-purchases-scroll';
-  document.querySelectorAll('form.js-keep-scroll').forEach(function (f) {
-    f.addEventListener('submit', function () {
-      try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
-    });
-  });
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (f && f.classList && f.classList.contains('js-keep-scroll')) {
+      try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (err) {}
+    }
+  }, true);
   try {
     var y = sessionStorage.getItem(KEY);
     if (y !== null) {
       sessionStorage.removeItem(KEY);
       window.scrollTo(0, parseInt(y, 10) || 0);
     }
-  } catch (e) {}
+  } catch (err) {}
 })();
 </script>
 {% endblock %}

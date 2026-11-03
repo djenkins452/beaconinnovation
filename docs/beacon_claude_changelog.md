@@ -4,6 +4,52 @@ This file tracks all changes made by Claude Code during development.
 
 ---
 
+## 2026-11-03
+
+### Operations: shared search-as-you-type across list pages
+- **What:** a single, reusable search added to every growing Operations list. A labeled
+  search box sits above the list; with JavaScript it filters as you type (debounced ~275 ms,
+  no Search button or Enter needed) and swaps the results in place; without JavaScript the
+  box is an ordinary GET form that submits to the same view (progressive enhancement).
+- **Matching:** case-insensitive partial matching, multiple words AND-ed together with each
+  word OR-ed across the page's chosen fields — so "black filament" matches an order whose
+  description and material name between them contain both words. Searches the whole
+  authorized dataset (not just the current page), returns each record once, and resets
+  pagination when the query changes.
+- **Shared component:** `operations/search.py` (`apply_search` / `search_terms`), a shared
+  `_search.html` partial, and shared CSS + JS in `operations/base.html`. The client keeps
+  focus in the box, preserves the query in the URL (so refresh / Back / returning from a
+  record keep the search), shows a result count + accessible live announcement, a Clear
+  control, a loading state, aborts stale requests (newer results never overwritten by an
+  older reply), and on a failed request keeps the current results and offers Retry.
+- **Pages covered:** Purchases, Spools, Materials, Products, Prints, Finished goods,
+  Internal orders, Inventory history, Stock, Equipment, Suppliers, Locations. Existing
+  type/status/nonzero filters and sorting are preserved; the History page's prior `q`
+  search was folded into the shared helper (now also matches material/product names).
+  *Deliberate exceptions:* Dashboard and Opening (not record lists); detail pages;
+  create/edit forms. Recipes/variants are searchable via their product on the Products list.
+- **Purchases specifics:** searches supplier, order number, item descriptions, catalog /
+  material name, SKU and notes; matching items inside a multi-item order are flagged; the
+  whole-order "Receive remaining on this entire order" stays scoped to the full order even
+  when only one item matches; the overall recorded-cost total always reflects *all*
+  purchases ("across all purchases") and is labeled separately from the match count, so a
+  search never appears to change recorded acquisition cost. Receiving while filtered keeps
+  the query (via the existing safe `next` redirect).
+- **Safety:** every list stays `@admin_required` (active-superuser-only); no new endpoints,
+  no financial/costing/inventory behavior changed, PostgreSQL throughout, no new
+  dependencies or paid services. Bounded, paginated, efficient queries (no per-row query;
+  match highlighting is computed in Python from already-loaded text).
+- **Tests:** `operations/tests/test_search.py` (new, +21) covers the helper (multi-word AND,
+  cross-field OR, distinct, caps), Purchases search by supplier/order/item/SKU/notes,
+  cross-field multi-word, match flagging, overall-total-unchanged, no-results, receiving
+  while filtered, admin-only access, and spot-checks of Materials / Spools / Suppliers.
+  Full `operations` suite green (153).
+- **Files:** `operations/search.py` (new), `operations/views.py` (search wiring + overall
+  vs. match totals on Purchases), `operations/templates/operations/_search.html` (new),
+  `operations/templates/operations/base.html` (shared CSS + JS + `[hidden]` fix),
+  all 12 list templates, `operations/tests/test_search.py` (new),
+  `operations/tests/test_purchase_list.py` (whole-order wording).
+
 ## 2026-11-02
 
 ### Operations: Purchases page redesigned as per-order cards

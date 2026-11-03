@@ -4,6 +4,7 @@
 <div class="row-split"><h1>Materials</h1><a href="{% url 'operations:material_create' %}" class="btn btn-primary">New material</a></div>
 <div class="card mb-2">
   <form method="get" class="inline-form">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     <label class="help">Filter by type:</label>
     <select name="type" class="form-control" style="width:auto;display:inline-block;" onchange="this.form.submit()">
       <option value="">All</option>
@@ -11,34 +12,39 @@
     </select>
   </form>
 </div>
-<div class="card">
-  {% if rows %}
-  <table>
-    <tr><th>Material</th><th>Type</th><th>SKU</th><th>On hand</th><th>Reorder at</th></tr>
-    {% for r in rows %}
-    <tr>
-      <td><a href="{% url 'operations:material_detail' r.m.id %}">{{ r.m }}</a>{% if r.low %} <span class="badge badge-red">Low</span>{% endif %}</td>
-      <td>{{ r.m.get_material_type_display }}</td>
-      <td>{{ r.m.sku|default:"—" }}</td>
-      <td>
-        {% if r.counts %}
-          {% if r.counts.total %}
-            {% if r.counts.open %}<span class="badge badge-green">{{ r.counts.open }} open</span> {% endif %}
-            {% if r.counts.low %}<span class="badge badge-amber">{{ r.counts.low }} low</span> {% endif %}
-            {% if r.counts.sealed %}<span class="badge badge-blue">{{ r.counts.sealed }} unopened</span> {% endif %}
-            {% if r.counts.empty %}<span class="badge badge-grey">{{ r.counts.empty }} empty</span> {% endif %}
-            {% if r.counts.refills %}<span class="help">({{ r.counts.refills }} refill{{ r.counts.refills|pluralize }})</span>{% endif %}
-          {% else %}<span class="text-muted">none on hand</span>{% endif %}
-          {% if r.counts.awaiting %} <span class="badge badge-amber">+{{ r.counts.awaiting }} awaiting delivery</span>{% endif %}
-        {% else %}
-          {{ r.on_hand|floatformat:"-3" }} {{ r.m.default_unit }}
-        {% endif %}
-      </td>
-      <td>{{ r.m.reorder_threshold|default:"—" }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p class="help mt-2">Filament is tracked by status (open / low / unopened / empty), not by grams. Counts are physical spools; refills are filament without a physical spool core.</p>
-  {% else %}<p class="text-muted">No materials yet. Create one, then add spools/stock against it.</p>{% endif %}
+{% include 'operations/_search.html' with search_q=q search_label="Search materials" search_placeholder="Manufacturer, name, SKU, notes…" search_hidden=search_hidden %}
+<div id="ops-results">
+  {% if has_query %}<p class="ops-result-count" data-ops-announce="{{ rows|length }} material{{ rows|length|pluralize }} match “{{ q }}”."><strong>{{ rows|length }}</strong> material{{ rows|length|pluralize }} match “{{ q }}”</p>{% endif %}
+  <div class="card">
+    {% if rows %}
+    <table>
+      <tr><th>Material</th><th>Type</th><th>SKU</th><th>On hand</th><th>Reorder at</th></tr>
+      {% for r in rows %}
+      <tr>
+        <td><a href="{% url 'operations:material_detail' r.m.id %}">{{ r.m }}</a>{% if r.low %} <span class="badge badge-red">Low</span>{% endif %}</td>
+        <td>{{ r.m.get_material_type_display }}</td>
+        <td>{{ r.m.sku|default:"—" }}</td>
+        <td>
+          {% if r.counts %}
+            {% if r.counts.total %}
+              {% if r.counts.open %}<span class="badge badge-green">{{ r.counts.open }} open</span> {% endif %}
+              {% if r.counts.low %}<span class="badge badge-amber">{{ r.counts.low }} low</span> {% endif %}
+              {% if r.counts.sealed %}<span class="badge badge-blue">{{ r.counts.sealed }} unopened</span> {% endif %}
+              {% if r.counts.empty %}<span class="badge badge-grey">{{ r.counts.empty }} empty</span> {% endif %}
+              {% if r.counts.refills %}<span class="help">({{ r.counts.refills }} refill{{ r.counts.refills|pluralize }})</span>{% endif %}
+            {% else %}<span class="text-muted">none on hand</span>{% endif %}
+            {% if r.counts.awaiting %} <span class="badge badge-amber">+{{ r.counts.awaiting }} awaiting delivery</span>{% endif %}
+          {% else %}
+            {{ r.on_hand|floatformat:"-3" }} {{ r.m.default_unit }}
+          {% endif %}
+        </td>
+        <td>{{ r.m.reorder_threshold|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="help mt-2">Filament is tracked by status (open / low / unopened / empty), not by grams. Counts are physical spools; refills are filament without a physical spool core.</p>
+    {% elif has_query %}<p class="text-muted">No materials match “{{ q }}”{% if type_filter %} in this type{% endif %}. <a href="?{% if type_filter %}type={{ type_filter }}{% endif %}">Clear search</a>.</p>
+    {% else %}<p class="text-muted">No materials yet. Create one, then add spools/stock against it.</p>{% endif %}
+  </div>
 </div>
 {% endblock %}

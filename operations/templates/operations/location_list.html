@@ -2,15 +2,20 @@
 {% block title %}Locations{% endblock %}
 {% block content %}
 <div class="row-split"><h1>Locations</h1><a href="{% url 'operations:location_create' %}" class="btn btn-primary">New location</a></div>
-<div class="card">
-  {% if locations %}
-  <table>
-    <tr><th>Name</th><th>Kind</th><th>Active</th></tr>
-    {% for l in locations %}
-    <tr><td>{{ l.name }}</td><td>{{ l.get_kind_display }}</td>
-        <td>{% if l.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-grey">Inactive</span>{% endif %}</td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="text-muted">No locations yet (shelves, bins, dry boxes).</p>{% endif %}
+{% include 'operations/_search.html' with search_q=q search_label="Search locations" search_placeholder="Name, notes…" %}
+<div id="ops-results">
+  {% if has_query %}<p class="ops-result-count" data-ops-announce="{{ locations|length }} location{{ locations|length|pluralize }} match “{{ q }}”."><strong>{{ locations|length }}</strong> location{{ locations|length|pluralize }} match “{{ q }}”</p>{% endif %}
+  <div class="card">
+    {% if locations %}
+    <table>
+      <tr><th>Name</th><th>Kind</th><th>Active</th></tr>
+      {% for l in locations %}
+      <tr><td>{{ l.name }}</td><td>{{ l.get_kind_display }}</td>
+          <td>{% if l.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-grey">Inactive</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% elif has_query %}<p class="text-muted">No locations match “{{ q }}”. <a href="?">Clear search</a>.</p>
+    {% else %}<p class="text-muted">No locations yet (shelves, bins, dry boxes).</p>{% endif %}
+  </div>
 </div>
 {% endblock %}

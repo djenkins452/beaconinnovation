@@ -4,6 +4,7 @@
 <div class="row-split"><h1>Filament spools</h1><a href="{% url 'operations:opening_spool' %}" class="btn btn-primary">Add existing spool</a></div>
 <div class="card mb-2">
   <form method="get" class="inline-form">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     <label class="help">Status:</label>
     <select name="status" class="form-control" style="width:auto;display:inline-block;" onchange="this.form.submit()">
       <option value="">All</option>
@@ -11,25 +12,30 @@
     </select>
   </form>
 </div>
-<div class="card">
-  {% if rows %}
-  <table>
-    <tr><th>Spool</th><th>Material</th><th>Kind</th><th>Status</th><th>Location</th>
-        <th class="text-right">Remaining</th><th class="text-right">Measured</th><th class="text-right">Variance</th></tr>
-    {% for r in rows %}
-    <tr>
-      <td><a href="{% url 'operations:spool_detail' r.s.id %}">{{ r.s.spool_uid }}</a></td>
-      <td>{{ r.s.material }}</td>
-      <td>{% if r.s.is_refill %}<span class="badge">Refill</span>{% else %}Spool{% endif %}</td>
-      <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span>{% if r.s.awaiting_confirmation %} <span class="badge badge-amber">Awaiting delivery</span>{% endif %}</td>
-      <td>{{ r.s.location|default:"—" }}</td>
-      <td class="text-right">{% if r.s.remaining_unknown %}<span class="text-muted">{{ r.s.remaining_display }}</span>{% else %}{{ r.est }} g{% endif %}</td>
-      <td class="text-right">{% if r.measured is not None %}{{ r.measured }} g{% else %}<span class="text-muted">—</span>{% endif %}</td>
-      <td class="text-right">{% if r.variance is not None %}{{ r.variance }} g{% else %}—{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p class="help mt-2">Gram tracking is optional. Spools marked “Unknown” are tracked by status (sealed / open / low / empty), not by weight. Where a weight is tracked, “Remaining” is the ledger total; “Measured” is the latest weigh-in — reconcile on a spool to align them.</p>
-  {% else %}<p class="text-muted">No spools yet.</p>{% endif %}
+{% include 'operations/_search.html' with search_q=q search_label="Search spools" search_placeholder="Spool ID, material, SKU, location…" search_hidden=search_hidden %}
+<div id="ops-results">
+  {% if has_query %}<p class="ops-result-count" data-ops-announce="{{ rows|length }} spool{{ rows|length|pluralize }} match “{{ q }}”."><strong>{{ rows|length }}</strong> spool{{ rows|length|pluralize }} match “{{ q }}”</p>{% endif %}
+  <div class="card">
+    {% if rows %}
+    <table>
+      <tr><th>Spool</th><th>Material</th><th>Kind</th><th>Status</th><th>Location</th>
+          <th class="text-right">Remaining</th><th class="text-right">Measured</th><th class="text-right">Variance</th></tr>
+      {% for r in rows %}
+      <tr>
+        <td><a href="{% url 'operations:spool_detail' r.s.id %}">{{ r.s.spool_uid }}</a></td>
+        <td>{{ r.s.material }}</td>
+        <td>{% if r.s.is_refill %}<span class="badge">Refill</span>{% else %}Spool{% endif %}</td>
+        <td><span class="badge badge-blue">{{ r.s.get_status_display }}</span>{% if r.s.awaiting_confirmation %} <span class="badge badge-amber">Awaiting delivery</span>{% endif %}</td>
+        <td>{{ r.s.location|default:"—" }}</td>
+        <td class="text-right">{% if r.s.remaining_unknown %}<span class="text-muted">{{ r.s.remaining_display }}</span>{% else %}{{ r.est }} g{% endif %}</td>
+        <td class="text-right">{% if r.measured is not None %}{{ r.measured }} g{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td class="text-right">{% if r.variance is not None %}{{ r.variance }} g{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="help mt-2">Gram tracking is optional. Spools marked “Unknown” are tracked by status (sealed / open / low / empty), not by weight. Where a weight is tracked, “Remaining” is the ledger total; “Measured” is the latest weigh-in — reconcile on a spool to align them.</p>
+    {% elif has_query %}<p class="text-muted">No spools match “{{ q }}”{% if status_filter %} in this status{% endif %}. <a href="?{% if status_filter %}status={{ status_filter }}{% endif %}">Clear search</a>.</p>
+    {% else %}<p class="text-muted">No spools yet.</p>{% endif %}
+  </div>
 </div>
 {% endblock %}

@@ -3,42 +3,46 @@
 {% block content %}
 <div class="row-split"><h1>Supplies &amp; hardware</h1>
   <a href="{% url 'operations:opening_stock' %}" class="btn btn-primary">Add existing stock</a></div>
+{% include 'operations/_search.html' with search_q=q search_label="Search supplies & hardware" search_placeholder="Material, SKU, location, notes…" %}
+<div id="ops-results">
+  {% if has_query %}<p class="ops-result-count" data-ops-announce="{{ confirmed|length|add:awaiting|length }} item(s) match “{{ q }}”."><strong>{{ confirmed|length|add:awaiting|length }}</strong> item{{ confirmed|length|add:awaiting|length|pluralize }} match “{{ q }}”</p>{% endif %}
+  <div class="card">
+    {% if confirmed %}
+    <table>
+      <tr><th>Item</th><th>Type</th><th>Location</th><th class="text-right">Acquired</th></tr>
+      {% for r in confirmed %}
+      <tr>
+        <td><a href="{% url 'operations:material_detail' r.i.material_id %}">{{ r.i.material }}</a>
+            {% if r.i.material.has_reorder_threshold and r.i.material.is_low_stock %} <span class="badge badge-red">Low</span>{% endif %}
+            {% if r.i.status != 'available' %} <span class="badge badge-amber">{{ r.i.get_status_display }}</span>{% endif %}</td>
+        <td>{{ r.i.material.get_material_type_display }}</td>
+        <td>{{ r.i.location|default:"—" }}</td>
+        <td class="text-right">{{ r.on_hand|floatformat:"-3" }} {{ r.i.unit }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="help mt-2">“Acquired” is how much was purchased (e.g. 1 pack of 120 screws). It is not a counted current balance — consumables may be partly used. Installed fixtures (lighting, power strips, shelving, pegboard) are recorded here but are not free consumable stock once installed.</p>
+    {% elif has_query and not awaiting %}<p class="text-muted">No stock matches “{{ q }}”. <a href="?">Clear search</a>.</p>
+    {% elif not awaiting %}<p class="text-muted">No stock on hand yet.</p>{% endif %}
+  </div>
 
-<div class="card">
-  {% if confirmed %}
-  <table>
-    <tr><th>Item</th><th>Type</th><th>Location</th><th class="text-right">Acquired</th></tr>
-    {% for r in confirmed %}
-    <tr>
-      <td><a href="{% url 'operations:material_detail' r.i.material_id %}">{{ r.i.material }}</a>
-          {% if r.i.material.has_reorder_threshold and r.i.material.is_low_stock %} <span class="badge badge-red">Low</span>{% endif %}
-          {% if r.i.status != 'available' %} <span class="badge badge-amber">{{ r.i.get_status_display }}</span>{% endif %}</td>
-      <td>{{ r.i.material.get_material_type_display }}</td>
-      <td>{{ r.i.location|default:"—" }}</td>
-      <td class="text-right">{{ r.on_hand|floatformat:"-3" }} {{ r.i.unit }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p class="help mt-2">“Acquired” is how much was purchased (e.g. 1 pack of 120 screws). It is not a counted current balance — consumables may be partly used. Installed fixtures (lighting, power strips, shelving, pegboard) are recorded here but are not free consumable stock once installed.</p>
-  {% else %}<p class="text-muted">No stock on hand yet.</p>{% endif %}
+  {% if awaiting %}
+  <div class="card">
+    <h2>Awaiting delivery confirmation</h2>
+    <p class="help mb-2">Ordered, but delivery is not yet confirmed — not counted as on hand. Confirm when it arrives.</p>
+    <table>
+      <tr><th>Item</th><th>Type</th><th class="text-right">Ordered</th><th></th></tr>
+      {% for r in awaiting %}
+      <tr>
+        <td>{{ r.i.material }}</td>
+        <td>{{ r.i.material.get_material_type_display }}</td>
+        <td class="text-right">{{ r.on_hand|floatformat:"-3" }} {{ r.i.unit }}</td>
+        <td><form method="post" action="{% url 'operations:stock_confirm_delivery' r.i.id %}" class="inline-form">
+              {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-primary btn-sm">Confirm delivery</button></form></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
 </div>
-
-{% if awaiting %}
-<div class="card">
-  <h2>Awaiting delivery confirmation</h2>
-  <p class="help mb-2">Ordered, but delivery is not yet confirmed — not counted as on hand. Confirm when it arrives.</p>
-  <table>
-    <tr><th>Item</th><th>Type</th><th class="text-right">Ordered</th><th></th></tr>
-    {% for r in awaiting %}
-    <tr>
-      <td>{{ r.i.material }}</td>
-      <td>{{ r.i.material.get_material_type_display }}</td>
-      <td class="text-right">{{ r.on_hand|floatformat:"-3" }} {{ r.i.unit }}</td>
-      <td><form method="post" action="{% url 'operations:stock_confirm_delivery' r.i.id %}" class="inline-form">
-            {% csrf_token %}<button class="btn btn-primary btn-sm">Confirm delivery</button></form></td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-{% endif %}
 {% endblock %}

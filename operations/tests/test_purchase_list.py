@@ -72,7 +72,7 @@ class PurchaseListViewTests(TestCase):
             self.assertContains(resp, reverse('operations:dashboard_receive_line', args=[ln.id]))
         # 3 quick-receivable lines → whole-order action offered, scoped to this order.
         self.assertContains(resp, reverse('operations:dashboard_receive_purchase', args=[purchase.id]))
-        self.assertContains(resp, 'Receive remaining on this order')
+        self.assertContains(resp, 'Receive remaining on this entire order')
 
     def test_single_item_order_has_no_whole_order_button(self):
         mat = _filament_material('Only', 'O1')

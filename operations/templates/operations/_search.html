@@ -1,0 +1,24 @@
+{% comment %}
+Shared search bar for Operations list pages. Renders a labelled GET search box above the
+list. With JavaScript it searches as you type (debounced) and swaps #ops-results in place;
+without JavaScript the Search button submits an ordinary GET to the same view. Context:
+  search_q            current query string
+  search_label        visible label, e.g. "Search purchases"
+  search_placeholder  input placeholder
+  search_hidden       dict of other GET params (filters) to preserve on no-JS submit / clear
+{% endcomment %}
+<form class="card ops-search" method="get" role="search" data-ops-search>
+  {% for k, v in search_hidden.items %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+  <label for="ops-q" class="ops-search-label">{{ search_label|default:"Search" }}</label>
+  <div class="ops-search-row">
+    <input type="search" id="ops-q" name="q" value="{{ search_q }}"
+           placeholder="{{ search_placeholder|default:'Search…' }}"
+           autocomplete="off" spellcheck="false" class="form-control ops-search-input"
+           aria-describedby="ops-search-status">
+    <button type="submit" class="btn btn-secondary ops-search-submit">Search</button>
+    <a class="btn btn-secondary ops-search-clear" data-ops-clear
+       href="?{% for k, v in search_hidden.items %}{% if v %}{{ k }}={{ v }}&amp;{% endif %}{% endfor %}"
+       {% if not search_q %}hidden{% endif %}>Clear</a>
+  </div>
+  <div id="ops-search-status" class="ops-search-status help" role="status" aria-live="polite" data-ops-status></div>
+</form>

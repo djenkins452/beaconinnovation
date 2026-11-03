@@ -23,6 +23,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 from finance.forms import validate_receipt_file
 from operations import services
+from operations.search import apply_search, search_terms
 from operations.forms import (
     CreateExpenseForm, EquipmentForm, InternalOrderForm, InternalOrderLineFormSet,
     LinkPaymentForm, LocationForm, MaterialForm, OpeningSpoolForm, OpeningStockForm,
@@ -235,8 +236,10 @@ def dashboard_receive_purchase(request, purchase_id):
 
 @admin_required
 def supplier_list(request):
+    q = request.GET.get('q', '').strip()
+    suppliers = apply_search(Supplier.objects.all(), q, ['name', 'website', 'notes'])
     return render(request, 'operations/supplier_list.html',
-                  {'active_nav': 'suppliers', 'suppliers': Supplier.objects.all()})
+                  {'active_nav': 'suppliers', 'suppliers': suppliers, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required
@@ -256,8 +259,10 @@ def supplier_create(request):
 
 @admin_required
 def location_list(request):
+    q = request.GET.get('q', '').strip()
+    locations = apply_search(Location.objects.all(), q, ['name', 'notes'])
     return render(request, 'operations/location_list.html',
-                  {'active_nav': 'locations', 'locations': Location.objects.all()})
+                  {'active_nav': 'locations', 'locations': locations, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required
@@ -283,6 +288,8 @@ def material_list(request):
     mtype = request.GET.get('type', '')
     if mtype:
         qs = qs.filter(material_type=mtype)
+    q = request.GET.get('q', '').strip()
+    qs = apply_search(qs, q, ['manufacturer', 'product_type', 'name', 'sku', 'notes'])
     materials = list(qs)
     rows = []
     for m in materials:
@@ -294,7 +301,8 @@ def material_list(request):
         })
     return render(request, 'operations/material_list.html',
                   {'active_nav': 'materials', 'rows': rows, 'type_filter': mtype,
-                   'type_choices': Material.MATERIAL_TYPE_CHOICES})
+                   'type_choices': Material.MATERIAL_TYPE_CHOICES,
+                   'q': q, 'has_query': bool(q), 'search_hidden': {'type': mtype}})
 
 
 @admin_required
@@ -334,6 +342,10 @@ def spool_list(request):
     status = request.GET.get('status', '')
     if status:
         spools = spools.filter(status=status)
+    q = request.GET.get('q', '').strip()
+    spools = apply_search(spools, q, [
+        'spool_uid', 'material__manufacturer', 'material__product_type', 'material__name',
+        'material__sku', 'location__name', 'notes'])
     # Open/low first, then sealed spare stock, then empty/damaged. Awaiting-delivery last.
     order = {'open': 0, 'low': 1, 'sealed': 2, 'damaged': 3, 'empty': 4}
     spools = sorted(spools, key=lambda s: (not s.delivery_confirmed, order.get(s.status, 9),
@@ -342,7 +354,8 @@ def spool_list(request):
              'variance': s.variance_g} for s in spools]
     return render(request, 'operations/spool_list.html',
                   {'active_nav': 'spools', 'rows': rows, 'status_filter': status,
-                   'status_choices': FilamentSpool.STATUS_CHOICES})
+                   'status_choices': FilamentSpool.STATUS_CHOICES,
+                   'q': q, 'has_query': bool(q), 'search_hidden': {'status': status}})
 
 
 @admin_required
@@ -390,7 +403,7 @@ def stock_confirm_delivery(request, stock_id):
     if request.method == 'POST':
         services.confirm_stock_delivery(stock_item=item, actor=request.user)
         messages.success(request, f'{item.material}: delivery confirmed.')
-    return redirect('operations:stock_list')
+    return _safe_next(request, redirect('operations:stock_list'))
 
 
 @admin_required
@@ -434,18 +447,26 @@ def measurement_reconcile(request, measurement_id):
 @admin_required
 def stock_list(request):
     items = StockItem.objects.select_related('material', 'location').all()
+    q = request.GET.get('q', '').strip()
+    items = apply_search(items, q, [
+        'material__manufacturer', 'material__product_type', 'material__name', 'material__sku',
+        'location__name', 'notes'])
     confirmed, awaiting = [], []
     for i in items:
         row = {'i': i, 'on_hand': i.on_hand}
         (awaiting if i.awaiting_confirmation else confirmed).append(row)
     return render(request, 'operations/stock_list.html',
-                  {'active_nav': 'stock', 'confirmed': confirmed, 'awaiting': awaiting})
+                  {'active_nav': 'stock', 'confirmed': confirmed, 'awaiting': awaiting,
+                   'q': q, 'has_query': bool(q)})
 
 
 @admin_required
 def equipment_list(request):
+    q = request.GET.get('q', '').strip()
+    equipment = apply_search(Equipment.objects.all(), q,
+                             ['name', 'manufacturer', 'model', 'serial_number', 'notes'])
     return render(request, 'operations/equipment_list.html',
-                  {'active_nav': 'equipment', 'equipment': Equipment.objects.all()})
+                  {'active_nav': 'equipment', 'equipment': equipment, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required
@@ -559,13 +580,26 @@ def _catalog_adds_info(desc, catalog):
     return (len(ct & dt) / len(ct)) < 0.8
 
 
-def _attach_item_rows(purchase):
+# Fields searched on the Purchases list (supplier, order number, item descriptions,
+# catalog/material name + SKU, and order notes) — see operations.search.apply_search.
+PURCHASE_SEARCH_FIELDS = [
+    'supplier__name', 'supplier_name', 'order_number', 'notes',
+    'lines__description', 'lines__material__manufacturer', 'lines__material__product_type',
+    'lines__material__name', 'lines__material__sku',
+]
+
+
+def _attach_item_rows(purchase, terms=()):
     """Attach compact per-item rows + a derived order badge to a purchase for the list.
 
     Mirrors the dashboard's fast-receive affordances by reusing its endpoints/services:
     each not-received filament/stock line is quick-receivable, each line's receiving
     status is computed exactly once (no extra query per rendered row), and a whole-order
     'receive remaining' is offered when 2+ lines are quick-receivable.
+
+    When ``terms`` (lowercase search words) are given, a line is flagged as matching so the
+    template can point out which item(s) in a multi-item order matched — computed in Python
+    from text already loaded, so it adds no query per row.
     """
     rows, quick_count, quick_filament, states = [], 0, False, []
     for ln in purchase.lines.all():
@@ -573,11 +607,15 @@ def _attach_item_rows(purchase):
         catalog = str(ln.material) if ln.material else ''
         desc = ln.description or catalog or ln.get_item_type_display()
         quickable = status == 'outstanding' and ln.item_type in ('filament', 'stock')
+        match = False
+        if terms:
+            haystack = ('%s %s %s' % (desc, catalog, ln.material.sku if ln.material else '')).lower()
+            match = any(t in haystack for t in terms)
         rows.append({
             'ln': ln, 'status': status,
             'label': PurchaseLine.RECEIVING_LABELS.get(status, 'Not received'),
             'desc': desc, 'catalog': catalog, 'show_catalog': _catalog_adds_info(desc, catalog),
-            'quickable': quickable,
+            'quickable': quickable, 'match': match,
             'is_filament': ln.item_type == 'filament', 'is_equipment': ln.item_type == 'equipment',
             'is_outstanding': status == 'outstanding', 'is_unconfirmed': status == 'unconfirmed',
             'is_cancelled': status == 'cancelled', 'is_received': status == 'received',
@@ -596,22 +634,31 @@ def _attach_item_rows(purchase):
 
 @admin_required
 def purchase_list(request):
-    purchases = (Purchase.objects.select_related('supplier')
-                 .prefetch_related(
-                     Prefetch('lines', queryset=PurchaseLine.objects.select_related('material')),
-                     'lines__spools', 'lines__movements__stock_item', 'payments')
-                 .all())
-    # Active total excludes canceled orders/lines; each row still shows its original total.
-    total_recorded = sum((p.active_order_total() for p in purchases), Decimal('0'))
-    cancelled_count = sum(1 for p in purchases if p.is_cancelled)
+    base = (Purchase.objects.select_related('supplier')
+            .prefetch_related(
+                Prefetch('lines', queryset=PurchaseLine.objects.select_related('material')),
+                'lines__spools', 'lines__movements__stock_item', 'payments'))
+    # Overall recorded cost is always the WHOLE authorized dataset — searching narrows which
+    # orders are listed, it must never look like it changed the recorded acquisition cost.
+    total_recorded = sum((p.active_order_total() for p in base.all()), Decimal('0'))
+    total_count = base.count()
+    cancelled_count = sum(1 for p in base.all() if p.is_cancelled)
+
+    q = request.GET.get('q', '').strip()
+    purchases = apply_search(base, q, PURCHASE_SEARCH_FIELDS)
+    match_count = purchases.count() if q else total_count
+
     paginator = Paginator(purchases, 25)
     page = paginator.get_page(request.GET.get('page'))
+    terms = search_terms(q)
     # Compact item rows + fast-receive affordances for the orders on THIS page only.
     for p in page.object_list:
-        _attach_item_rows(p)
+        _attach_item_rows(p, terms)
     return render(request, 'operations/purchase_list.html',
                   {'active_nav': 'purchases', 'page': page, 'total_recorded': total_recorded,
-                   'cancelled_count': cancelled_count, 'next_url': request.get_full_path()})
+                   'total_count': total_count, 'match_count': match_count,
+                   'cancelled_count': cancelled_count, 'q': q, 'has_query': bool(q),
+                   'next_url': request.get_full_path()})
 
 
 @admin_required
@@ -969,9 +1016,14 @@ def document_download(request, document_id):
 @admin_required
 def print_list(request):
     prints = PrintLog.objects.select_related('printer').all()
+    q = request.GET.get('q', '').strip()
+    prints = apply_search(prints, q, [
+        'name', 'printer__name', 'notes', 'products__variant__name',
+        'products__variant__product__name'])
     paginator = Paginator(prints, 25)
     page = paginator.get_page(request.GET.get('page'))
-    return render(request, 'operations/print_list.html', {'active_nav': 'prints', 'page': page})
+    return render(request, 'operations/print_list.html',
+                  {'active_nav': 'prints', 'page': page, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required
@@ -1078,12 +1130,14 @@ def movement_list(request):
     if mtype:
         movements = movements.filter(movement_type=mtype)
     q = request.GET.get('q', '').strip()
-    if q:
-        movements = movements.filter(Q(reason__icontains=q) | Q(spool__spool_uid__icontains=q))
+    movements = apply_search(movements, q, [
+        'reason', 'spool__spool_uid', 'spool__material__name', 'stock_item__material__name',
+        'product_variant__name', 'product_variant__product__name'])
     paginator = Paginator(movements, 50)
     page = paginator.get_page(request.GET.get('page'))
     return render(request, 'operations/movement_list.html',
                   {'active_nav': 'history', 'page': page, 'type_filter': mtype, 'q': q,
+                   'has_query': bool(q), 'search_hidden': {'type': mtype},
                    'type_choices': InventoryMovement.MOVEMENT_TYPE_CHOICES})
 
 
@@ -1109,8 +1163,11 @@ def movement_reverse(request, movement_id):
 @admin_required
 def product_list(request):
     products = PhysicalProduct.objects.filter(is_active=True).prefetch_related('variants')
+    q = request.GET.get('q', '').strip()
+    products = apply_search(products, q, ['name', 'description', 'variants__name', 'variants__notes'])
     rows = [{'p': p, 'on_hand': p.total_on_hand, 'variants': p.variants.count()} for p in products]
-    return render(request, 'operations/product_list.html', {'active_nav': 'products', 'rows': rows})
+    return render(request, 'operations/product_list.html',
+                  {'active_nav': 'products', 'rows': rows, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required
@@ -1204,6 +1261,8 @@ def recipe_create(request, variant_id):
 def finished_goods(request):
     from django.db.models import Sum
     variants = ProductVariant.objects.select_related('product').all()
+    q = request.GET.get('q', '').strip()
+    variants = apply_search(variants, q, ['name', 'product__name', 'notes'])
     rows = []
     for v in variants:
         produced = (v.movements.filter(movement_type='production_output')
@@ -1215,7 +1274,8 @@ def finished_goods(request):
     if request.GET.get('nonzero'):
         rows = [r for r in rows if r['available'] != 0]
     return render(request, 'operations/finished_goods.html',
-                  {'active_nav': 'finished', 'rows': rows, 'nonzero': request.GET.get('nonzero')})
+                  {'active_nav': 'finished', 'rows': rows, 'nonzero': request.GET.get('nonzero'),
+                   'q': q, 'has_query': bool(q), 'search_hidden': {'nonzero': request.GET.get('nonzero', '')}})
 
 
 # =============================================================================
@@ -1225,9 +1285,13 @@ def finished_goods(request):
 @admin_required
 def order_list(request):
     orders = InternalOrder.objects.prefetch_related('lines').all()
+    q = request.GET.get('q', '').strip()
+    orders = apply_search(orders, q, [
+        'notes', 'lines__variant__name', 'lines__variant__product__name'])
     paginator = Paginator(orders, 25)
     page = paginator.get_page(request.GET.get('page'))
-    return render(request, 'operations/order_list.html', {'active_nav': 'orders', 'page': page})
+    return render(request, 'operations/order_list.html',
+                  {'active_nav': 'orders', 'page': page, 'q': q, 'has_query': bool(q)})
 
 
 @admin_required

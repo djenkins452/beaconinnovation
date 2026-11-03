@@ -7,45 +7,50 @@
   reversing entry is added.</div>
 <div class="card mb-2">
   <form method="get" class="inline-form">
-    <select name="type" class="form-control" style="width:auto;display:inline-block;">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <label class="help">Type:</label>
+    <select name="type" class="form-control" style="width:auto;display:inline-block;" onchange="this.form.submit()">
       <option value="">All types</option>
       {% for val, label in type_choices %}<option value="{{ val }}" {% if type_filter == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
-    <input type="text" name="q" value="{{ q }}" placeholder="Search reason / spool" class="form-control" style="width:auto;display:inline-block;">
-    <button class="btn btn-secondary btn-sm">Filter</button>
   </form>
 </div>
-<div class="card">
-  {% if page.object_list %}
-  <table>
-    <tr><th>When</th><th>Type</th><th>Item</th><th class="text-right">Qty</th><th>Reason</th><th>By</th><th></th></tr>
-    {% for mv in page.object_list %}
-    <tr>
-      <td>{{ mv.created_at|date:"M j, Y H:i" }}</td>
-      <td>{{ mv.get_movement_type_display }}{% if mv.reverses_id %} <span class="badge badge-grey">reversal</span>{% endif %}
-          {% if mv.is_reversed %} <span class="badge badge-amber">reversed</span>{% endif %}</td>
-      <td>{{ mv.target }}</td>
-      <td class="text-right">{{ mv.quantity }} {{ mv.unit }}</td>
-      <td>{{ mv.reason }}</td>
-      <td>{{ mv.actor|default:"—" }}</td>
-      <td>
-        {% if not mv.is_reversed and mv.movement_type != 'reversal' %}
-        <form method="post" action="{% url 'operations:movement_reverse' mv.id %}" class="inline-form"
-              onsubmit="return confirm('Post a reversing movement for this entry? The original is kept.');">
-          {% csrf_token %}
-          <input type="hidden" name="reason" value="Correction">
-          <button class="btn btn-danger btn-sm">Reverse</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  <div class="pagination">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&type={{ type_filter }}&q={{ q }}">← Prev</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}&type={{ type_filter }}&q={{ q }}">Next →</a>{% endif %}
+{% include 'operations/_search.html' with search_q=q search_label="Search history" search_placeholder="Reason, spool ID, material, product…" search_hidden=search_hidden %}
+<div id="ops-results">
+  {% if has_query %}<p class="ops-result-count" data-ops-announce="{{ page.paginator.count }} movement(s) match “{{ q }}”."><strong>{{ page.paginator.count }}</strong> movement{{ page.paginator.count|pluralize }} match “{{ q }}”</p>{% endif %}
+  <div class="card">
+    {% if page.object_list %}
+    <table>
+      <tr><th>When</th><th>Type</th><th>Item</th><th class="text-right">Qty</th><th>Reason</th><th>By</th><th></th></tr>
+      {% for mv in page.object_list %}
+      <tr>
+        <td>{{ mv.created_at|date:"M j, Y H:i" }}</td>
+        <td>{{ mv.get_movement_type_display }}{% if mv.reverses_id %} <span class="badge badge-grey">reversal</span>{% endif %}
+            {% if mv.is_reversed %} <span class="badge badge-amber">reversed</span>{% endif %}</td>
+        <td>{{ mv.target }}</td>
+        <td class="text-right">{{ mv.quantity }} {{ mv.unit }}</td>
+        <td>{{ mv.reason }}</td>
+        <td>{{ mv.actor|default:"—" }}</td>
+        <td>
+          {% if not mv.is_reversed and mv.movement_type != 'reversal' %}
+          <form method="post" action="{% url 'operations:movement_reverse' mv.id %}" class="inline-form"
+                onsubmit="return confirm('Post a reversing movement for this entry? The original is kept.');">
+            {% csrf_token %}
+            <input type="hidden" name="reason" value="Correction">
+            <button class="btn btn-danger btn-sm">Reverse</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="pagination">
+      {% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}">← Prev</a>{% endif %}
+      <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a href="{% querystring page=page.next_page_number %}">Next →</a>{% endif %}
+    </div>
+    {% elif has_query %}<p class="text-muted">No movements match “{{ q }}”{% if type_filter %} in this type{% endif %}. <a href="?{% if type_filter %}type={{ type_filter }}{% endif %}">Clear search</a>.</p>
+    {% else %}<p class="text-muted">No movements recorded yet.</p>{% endif %}
   </div>
-  {% else %}<p class="text-muted">No movements recorded yet.</p>{% endif %}
 </div>
 {% endblock %}
